@@ -1,0 +1,46 @@
+http:
+  routers:
+    mailpit:
+      rule: "Host(`mail.cauppo.localhost`)"
+      entryPoints:
+        - web
+      middlewares:
+        - secure-headers
+      service: mailpit
+
+  middlewares:
+    compress:
+      compress: {}
+
+    secure-headers:
+      headers:
+        contentTypeNosniff: true
+        browserXssFilter: true
+        frameDeny: true
+        contentSecurityPolicy: "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+        customResponseHeaders:
+          X-Powered-By: ""
+
+    # zitadel-login (Next.js) manages its own security headers and requires
+    # inline scripts with dynamic nonces. Strip the global secure-headers CSP
+    # for the /ui/v2/login path so the browser does not block its inline scripts.
+    zitadel-login-headers:
+      headers:
+        customResponseHeaders:
+          Content-Security-Policy: ""
+          X-Frame-Options: ""
+          X-Powered-By: ""
+
+    rate-limit:
+      rateLimit:
+        average: 200
+        burst: 50
+        period: 1s
+
+  services:
+    mailpit:
+      loadBalancer:
+        servers:
+          - url: "http://mailpit:8025"

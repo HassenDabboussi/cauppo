@@ -1,0 +1,738 @@
+name: cauppo
+
+services:
+  postgres:
+    image: postgres:18.3-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U postgres -d postgres
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+    networks:
+      - cauppo-internal
+
+  redis:
+    image: redis:8.6.1-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - yes
+      - --requirepass
+      - cauppo_redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - -a
+        - cauppo_redis
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+    networks:
+      - cauppo-internal
+
+  rabbitmq:
+    image: rabbitmq:4.2.5-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: cauppo
+      RABBITMQ_DEFAULT_PASS: cauppo
+      RABBITMQ_DEFAULT_VHOST: /cauppo
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test:
+        - CMD
+        - rabbitmq-diagnostics
+        - -q
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    networks:
+      - cauppo-internal
+
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    command:
+      - --api.insecure=true
+      - --ping
+      - --providers.docker=true
+      - --providers.docker.endpoint=tcp://host.docker.internal:2375
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=cauppo-edge
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --entrypoints.web.address=:80
+      # secure-headers is NOT a global middleware — it must be applied per-router.
+      # Entrypoint middlewares run LAST on responses (outermost wrapper), so a global
+      # secure-headers would re-apply CSP AFTER any router-level header clearing.
+      # zitadel-login uses zitadel-login-headers@file instead; all others use secure-headers@file.
+      - --entrypoints.web.http.middlewares=compress@file,rate-limit@file
+      - --log.level=INFO
+    volumes:
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:8090:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8080/ping || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64m
+    networks:
+      cauppo-edge: {}
+      # Alias so zitadel-login can reach Traefik by the external domain name.
+      # This makes Host: auth.cauppo.localhost natively correct without needing
+      # CUSTOM_REQUEST_HEADERS (which Node.js http2 silently drops).
+      cauppo-internal:
+        aliases:
+          - auth.cauppo.localhost
+
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:v4.12.3
+    restart: unless-stopped
+    # user: "0" required — zitadel needs write access to the PAT volume; non-root uid cannot write /current-dir/login-client.pat.
+    user: "0"
+    command:
+      - start-from-init
+      - --masterkey
+      - ${ZITADEL_MASTERKEY:-MasterkeyNeedsToHave32Characters}
+    environment:
+      ZITADEL_PORT: "8080"
+      ZITADEL_EXTERNALDOMAIN: auth.cauppo.localhost
+      ZITADEL_EXTERNALPORT: "80"
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_TLS_ENABLED: "false"
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: postgres
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_FIRSTINSTANCE_ORG_NAME: Cauppo
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Admin1234!
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      # Login client PAT — written to shared volume, read by zitadel-login service
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /current-dir/login-client.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2029-01-01T00:00:00Z"
+      # Login v2 feature flags
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: http://auth.cauppo.localhost/ui/v2/login
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: http://auth.cauppo.localhost/ui/v2/login/login?authRequest=
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: http://auth.cauppo.localhost/ui/v2/login/logout?post_logout_redirect=
+      ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - zitadel-pat:/current-dir
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /app/zitadel
+        - ready
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=cauppo-internal"
+      - "traefik.http.routers.zitadel.rule=Host(`auth.cauppo.localhost`) && !PathPrefix(`/ui/v2/login`)"
+      - "traefik.http.routers.zitadel.entrypoints=web"
+      - "traefik.http.routers.zitadel.priority=10"
+      - "traefik.http.routers.zitadel.middlewares=secure-headers@file"
+      - "traefik.http.services.zitadel.loadbalancer.server.port=8080"
+      - "traefik.http.services.zitadel.loadbalancer.server.scheme=h2c"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+    networks:
+      - cauppo-internal
+
+  zitadel-login:
+    image: ghcr.io/zitadel/zitadel-login:v4.12.3
+    restart: unless-stopped
+    environment:
+      # Route via Traefik so Host: auth.cauppo.localhost is set natively from the URL.
+      # zitadel-login resolves auth.cauppo.localhost to Traefik (alias on cauppo-internal),
+      # Traefik routes to Zitadel via h2c. No CUSTOM_REQUEST_HEADERS needed.
+      ZITADEL_API_URL: http://auth.cauppo.localhost
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /current-dir/login-client.pat
+      NODE_ENV: production
+    volumes:
+      - zitadel-pat:/current-dir:ro
+    depends_on:
+      zitadel:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:3000/ui/v2/login/healthy || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=cauppo-internal"
+      - "traefik.http.routers.zitadel-login.rule=Host(`auth.cauppo.localhost`) && PathPrefix(`/ui/v2/login`)"
+      - "traefik.http.routers.zitadel-login.entrypoints=web"
+      - "traefik.http.routers.zitadel-login.priority=20"
+      # Override global entrypoint middlewares: replace secure-headers with zitadel-login-headers
+      # so the Traefik CSP does not block Next.js inline scripts on the login UI.
+      - "traefik.http.routers.zitadel-login.middlewares=compress@file,zitadel-login-headers@file,rate-limit@file"
+      - "traefik.http.services.zitadel-login.loadbalancer.server.port=3000"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    networks:
+      - cauppo-internal
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${USER_SERVICE_PORT}
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
+      DATABASE_URL: ${USER_SERVICE_DATABASE_URL}
+      REDIS_URL: ${USER_SERVICE_REDIS_URL}
+      RABBITMQ_URL: ${USER_SERVICE_RABBITMQ_URL}
+      ZITADEL_ISSUER: ${USER_SERVICE_ZITADEL_ISSUER}
+      ZITADEL_ISSUER_URL: ${USER_SERVICE_ZITADEL_ISSUER_URL}
+      ZITADEL_JWKS_URL: ${USER_SERVICE_ZITADEL_JWKS_URL}
+      ZITADEL_AUDIENCE: ${USER_SERVICE_ZITADEL_AUDIENCE}
+      JWT_AUDIENCE: ${USER_SERVICE_JWT_AUDIENCE}
+      ZITADEL_CLIENT_ID: ${USER_SERVICE_ZITADEL_CLIENT_ID}
+      ZITADEL_CLIENT_SECRET: ${USER_SERVICE_ZITADEL_CLIENT_SECRET}
+      RESEND_API_KEY: ${USER_SERVICE_RESEND_API_KEY}
+      RESEND_FROM_EMAIL: ${USER_SERVICE_RESEND_FROM_EMAIL}
+      SMTP_HOST: ${USER_SERVICE_SMTP_HOST}
+      SMTP_PORT: ${USER_SERVICE_SMTP_PORT}
+      SMTP_SECURE: ${USER_SERVICE_SMTP_SECURE}
+      R2_ENDPOINT: ${USER_SERVICE_R2_ENDPOINT}
+      R2_ACCOUNT_ID: ${USER_SERVICE_R2_ACCOUNT_ID}
+      R2_BUCKET_AVATARS: ${USER_SERVICE_R2_BUCKET_AVATARS}
+      R2_BUCKET_RESTAURANTS: ${USER_SERVICE_R2_BUCKET_RESTAURANTS}
+      R2_BUCKET_NAME: ${USER_SERVICE_R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${USER_SERVICE_R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${USER_SERVICE_R2_SECRET_ACCESS_KEY}
+      R2_PUBLIC_URL: ${USER_SERVICE_R2_PUBLIC_URL}
+      KONNECT_API_KEY: ${USER_SERVICE_KONNECT_API_KEY}
+      KONNECT_WEBHOOK_SECRET: ${USER_SERVICE_KONNECT_WEBHOOK_SECRET}
+      CAUPPO_PUBLIC_APP_URL: ${USER_SERVICE_CAUPPO_PUBLIC_APP_URL}
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:$$PORT/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.user-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/customer`) || PathPrefix(`/v1/profile`) || PathPrefix(`/v1/roles`) || PathPrefix(`/v1/invitations`) || PathPrefix(`/v1/owner`) || PathPrefix(`/v1/webhooks`))"
+      - "traefik.http.routers.user-service.entrypoints=web"
+      - "traefik.http.routers.user-service.middlewares=secure-headers@file"
+      - "traefik.http.services.user-service.loadbalancer.server.port=3001"
+    networks:
+      - cauppo-edge
+      - cauppo-internal
+
+  feedback-service:
+    build:
+      context: ./feedback-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${FEEDBACK_SERVICE_PORT}
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
+      DATABASE_URL: ${FEEDBACK_SERVICE_DATABASE_URL}
+      REDIS_URL: ${FEEDBACK_SERVICE_REDIS_URL}
+      RABBITMQ_URL: ${FEEDBACK_SERVICE_RABBITMQ_URL}
+      ZITADEL_ISSUER: ${FEEDBACK_SERVICE_ZITADEL_ISSUER}
+      ZITADEL_ISSUER_URL: ${FEEDBACK_SERVICE_ZITADEL_ISSUER_URL}
+      ZITADEL_JWKS_URL: ${FEEDBACK_SERVICE_ZITADEL_JWKS_URL}
+      ZITADEL_AUDIENCE: ${FEEDBACK_SERVICE_ZITADEL_AUDIENCE}
+      JWT_AUDIENCE: ${FEEDBACK_SERVICE_JWT_AUDIENCE}
+      ZITADEL_CLIENT_ID: ${FEEDBACK_SERVICE_ZITADEL_CLIENT_ID}
+      ORDER_SERVICE_INTERNAL_URL: ${FEEDBACK_SERVICE_ORDER_SERVICE_INTERNAL_URL}
+    ports:
+      - "127.0.0.1:3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:$$PORT/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.feedback-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/feedback`) || PathPrefix(`/v1/manager/feedback`) || PathPrefix(`/v1/owner/feedback`))"
+      - "traefik.http.routers.feedback-service.entrypoints=web"
+      - "traefik.http.routers.feedback-service.middlewares=secure-headers@file"
+      - "traefik.http.services.feedback-service.loadbalancer.server.port=3002"
+    networks:
+      - cauppo-edge
+      - cauppo-internal
+
+  menu-service:
+    build:
+      context: ./menu-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${MENU_SERVICE_PORT}
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
+      DATABASE_URL: ${MENU_SERVICE_DATABASE_URL}
+      REDIS_URL: ${MENU_SERVICE_REDIS_URL}
+      RABBITMQ_URL: ${MENU_SERVICE_RABBITMQ_URL}
+      ZITADEL_ISSUER: ${MENU_SERVICE_ZITADEL_ISSUER}
+      ZITADEL_ISSUER_URL: ${MENU_SERVICE_ZITADEL_ISSUER_URL}
+      ZITADEL_JWKS_URL: ${MENU_SERVICE_ZITADEL_JWKS_URL}
+      ZITADEL_AUDIENCE: ${MENU_SERVICE_ZITADEL_AUDIENCE}
+      JWT_AUDIENCE: ${MENU_SERVICE_JWT_AUDIENCE}
+      USER_SERVICE_URL: ${MENU_SERVICE_USER_SERVICE_INTERNAL_URL}
+      R2_ENDPOINT: ${MENU_SERVICE_R2_ENDPOINT}
+      R2_BUCKET_MENU_ITEMS: ${MENU_SERVICE_R2_BUCKET_MENU_ITEMS}
+      R2_BUCKET_QR: ${MENU_SERVICE_R2_BUCKET_QR}
+      R2_ACCESS_KEY_ID: ${MENU_SERVICE_R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${MENU_SERVICE_R2_SECRET_ACCESS_KEY}
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:$$PORT/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.menu-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/tables`) || PathPrefix(`/v1/menu`) || PathPrefix(`/v1/manager/menu`) || PathPrefix(`/v1/manager/categories`) || PathPrefix(`/v1/manager/menu-items`) || PathPrefix(`/v1/manager/extras`) || PathPrefix(`/v1/manager/tables`) || PathPrefix(`/v1/manager/promotions`))"
+      - "traefik.http.routers.menu-service.entrypoints=web"
+      - "traefik.http.routers.menu-service.middlewares=secure-headers@file"
+      - "traefik.http.services.menu-service.loadbalancer.server.port=8081"
+    networks:
+      - cauppo-edge
+      - cauppo-internal
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${ORDER_SERVICE_PORT}
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
+      DATABASE_URL: ${ORDER_SERVICE_DATABASE_URL}
+      REDIS_URL: ${ORDER_SERVICE_REDIS_URL}
+      RABBITMQ_URL: ${ORDER_SERVICE_RABBITMQ_URL}
+      ZITADEL_ISSUER: ${ORDER_SERVICE_ZITADEL_ISSUER}
+      ZITADEL_ISSUER_URL: ${ORDER_SERVICE_ZITADEL_ISSUER_URL}
+      ZITADEL_JWKS_URL: ${ORDER_SERVICE_ZITADEL_JWKS_URL}
+      ZITADEL_AUDIENCE: ${ORDER_SERVICE_ZITADEL_AUDIENCE}
+      JWT_AUDIENCE: ${ORDER_SERVICE_JWT_AUDIENCE}
+      MENU_SERVICE_INTERNAL_URL: ${ORDER_SERVICE_MENU_SERVICE_INTERNAL_URL}
+      ORDER_IDEMPOTENCY_TTL_SECONDS: ${ORDER_SERVICE_ORDER_IDEMPOTENCY_TTL_SECONDS}
+      TABLE_SESSION_LOCK_TTL_SECONDS: ${ORDER_SERVICE_TABLE_SESSION_LOCK_TTL_SECONDS}
+    ports:
+      - "127.0.0.1:8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      menu-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:$$PORT/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.order-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/orders`) || PathPrefix(`/v1/waiter`) || PathPrefix(`/v1/kitchen`) || PathPrefix(`/v1/cashier`))"
+      - "traefik.http.routers.order-service.entrypoints=web"
+      - "traefik.http.routers.order-service.middlewares=secure-headers@file"
+      - "traefik.http.services.order-service.loadbalancer.server.port=8082"
+    networks:
+      - cauppo-edge
+      - cauppo-internal
+
+  analytics-service:
+    build:
+      context: ./analytics-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${ANALYTICS_SERVICE_PORT}
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV: ${CAUPPO_ENV}
+      DATABASE_URL: ${ANALYTICS_SERVICE_DATABASE_URL}
+      ANALYTICS_READ_REPLICA_URL: ${ANALYTICS_SERVICE_ANALYTICS_READ_REPLICA_URL}
+      REDIS_URL: ${ANALYTICS_SERVICE_REDIS_URL}
+      RABBITMQ_URL: ${ANALYTICS_SERVICE_RABBITMQ_URL}
+      ZITADEL_ISSUER: ${ANALYTICS_SERVICE_ZITADEL_ISSUER}
+      ZITADEL_ISSUER_URL: ${ANALYTICS_SERVICE_ZITADEL_ISSUER_URL}
+      ZITADEL_JWKS_URL: ${ANALYTICS_SERVICE_ZITADEL_JWKS_URL}
+      ZITADEL_AUDIENCE: ${ANALYTICS_SERVICE_ZITADEL_AUDIENCE}
+      JWT_AUDIENCE: ${ANALYTICS_SERVICE_JWT_AUDIENCE}
+      USER_SERVICE_URL: ${ANALYTICS_SERVICE_USER_SERVICE_INTERNAL_URL}
+      ANALYTICS_LIVE_TTL_HOURS: ${ANALYTICS_SERVICE_ANALYTICS_LIVE_TTL_HOURS}
+    ports:
+      - "127.0.0.1:8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:$$PORT/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.analytics-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/manager/analytics`) || PathPrefix(`/v1/owner/analytics`))"
+      - "traefik.http.routers.analytics-service.entrypoints=web"
+      - "traefik.http.routers.analytics-service.middlewares=secure-headers@file"
+      - "traefik.http.services.analytics-service.loadbalancer.server.port=8083"
+    networks:
+      - cauppo-edge
+      - cauppo-internal
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${NOTIFICATION_SERVICE_PORT}
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
+      REDIS_URL: ${NOTIFICATION_SERVICE_REDIS_URL}
+      RABBITMQ_URL: ${NOTIFICATION_SERVICE_RABBITMQ_URL}
+      ZITADEL_ISSUER: ${NOTIFICATION_SERVICE_ZITADEL_ISSUER}
+      ZITADEL_ISSUER_URL: ${NOTIFICATION_SERVICE_ZITADEL_ISSUER_URL}
+      ZITADEL_JWKS_URL: ${NOTIFICATION_SERVICE_ZITADEL_JWKS_URL}
+      ZITADEL_AUDIENCE: ${NOTIFICATION_SERVICE_ZITADEL_AUDIENCE}
+      JWT_AUDIENCE: ${NOTIFICATION_SERVICE_JWT_AUDIENCE}
+      WS_HEARTBEAT_SECONDS: ${NOTIFICATION_SERVICE_WS_HEARTBEAT_SECONDS}
+      WS_IDLE_TIMEOUT_SECONDS: ${NOTIFICATION_SERVICE_WS_IDLE_TIMEOUT_SECONDS}
+      WS_REPLAY_TTL_MINUTES: ${NOTIFICATION_SERVICE_WS_REPLAY_TTL_MINUTES}
+      WS_MAX_CONNECTIONS_PER_USER: ${NOTIFICATION_SERVICE_WS_MAX_CONNECTIONS_PER_USER}
+    ports:
+      - "127.0.0.1:8084:8084"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:$$PORT/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.ws-headers.headers.customrequestheaders.X-Forwarded-Proto=http"
+      - "traefik.http.routers.notification-service.rule=Host(`api.cauppo.localhost`) && PathPrefix(`/v1/ws`)"
+      - "traefik.http.routers.notification-service.entrypoints=web"
+      - "traefik.http.routers.notification-service.middlewares=ws-headers,secure-headers@file"
+      - "traefik.http.services.notification-service.loadbalancer.server.port=8084"
+    networks:
+      - cauppo-edge
+      - cauppo-internal
+
+  minio:
+    image: quay.io/minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -f http://127.0.0.1:9000/minio/health/live || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=cauppo-internal"
+      - "traefik.http.routers.minio-console.rule=Host(`minio.cauppo.localhost`)"
+      - "traefik.http.routers.minio-console.entrypoints=web"
+      - "traefik.http.routers.minio-console.middlewares=secure-headers@file"
+      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+    networks:
+      - cauppo-internal
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin;
+        /usr/bin/mc mb --ignore-existing local/cauppo-avatars;
+        /usr/bin/mc mb --ignore-existing local/cauppo-restaurants;
+        /usr/bin/mc mb --ignore-existing local/cauppo-assets;
+        /usr/bin/mc mb --ignore-existing local/cauppo-menu-items;
+        /usr/bin/mc mb --ignore-existing local/cauppo-qr;
+        /usr/bin/mc anonymous set download local/cauppo-avatars;
+        /usr/bin/mc anonymous set download local/cauppo-menu-items;
+        /usr/bin/mc anonymous set download local/cauppo-qr;
+        echo 'MinIO buckets initialized';
+        exit 0;
+      "
+    networks:
+      - cauppo-internal
+    restart: "no"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    environment:
+      MP_UI_AUTH: mailpit:cauppo-mailpit
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8025/livez || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 64m
+    networks:
+      - cauppo-edge
+      - cauppo-internal
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        FRONTEND_BUILD_VARS: |-
+          VITE_PUBLIC_APP_URL=${FRONTEND_VITE_PUBLIC_APP_URL}
+          VITE_API_BASE_URL=${FRONTEND_VITE_API_BASE_URL}
+          VITE_AUTH_BASE_URL=${FRONTEND_VITE_AUTH_BASE_URL}
+          VITE_WS_URL=${FRONTEND_VITE_WS_URL}
+          VITE_ANALYTICS_WS_URL=${FRONTEND_VITE_ANALYTICS_WS_URL}
+          VITE_TRACE_HEADER=${FRONTEND_VITE_TRACE_HEADER}
+          VITE_PWA_NAME=${FRONTEND_VITE_PWA_NAME}
+          VITE_PWA_SHORT_NAME=${FRONTEND_VITE_PWA_SHORT_NAME}
+          VITE_APP_ENV=${FRONTEND_VITE_APP_ENV}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV: ${CAUPPO_ENV}
+    ports:
+      - "127.0.0.1:3000:8080"
+    depends_on:
+      user-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8080/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`app.cauppo.localhost`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.routers.frontend.middlewares=secure-headers@file"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
+    networks:
+      - cauppo-edge
+
+networks:
+  cauppo-edge:
+    driver: bridge
+    name: cauppo-edge
+  cauppo-internal:
+    driver: bridge
+    name: cauppo-internal
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  zitadel-pat:
+  minio-data:
