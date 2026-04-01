@@ -217,13 +217,38 @@ Skip this phase if the project already has runnable scaffolds with configured te
    - **Service assignment validation** (are the correct services targeted for each subtask?).
    - **Cross-service dependency check** (if subtasks span multiple services, are they ordered correctly?).
    * If the Reviewer flags issues, return to the Scrum Master for revisions before proceeding.
-4. **UI Canvas Gate (Designer — MANDATORY before any UI implementation):**
+
+4. **Architect Approval Gate (MANDATORY — BLOCKING — No implementation may begin without this):**
+
+   > **Rationale:** The Reviewer validates technical accuracy of individual task files. The Architect validates the sprint as a whole against the intended system architecture. Skipping this gate is what causes correctness-only sprints like Sprint 7. It must never be skipped.
+
+   After ALL task files have passed the Reviewer gate, call the **Context Manager** to generate a scoped context slice, then call the **Architect** with:
+
+   **Directive:** "Perform a full architectural approval review of the Sprint [N] plan. Read the Context Manager slice, all sprint task files, `SYSTEM_ARCHITECTURE.md`, all per-service `ARCHITECTURE.md` files affected by this sprint, and relevant `docs/` source files. Evaluate across four dimensions:
+   1. **Technical Correctness** — do subtasks correctly implement the intended architecture? Are there missing subtasks that leave the system in a partial or broken state?
+   2. **Risk and Ordering** — is the wave/dependency ordering safe? Are there hidden cross-task conflicts not captured in the Depends On fields?
+   3. **Contract and Schema Integrity** — are all new or changed contracts (API, events, DB schema) fully specified with producer and consumer sides covered? Will any task break a currently passing contract test?
+   4. **Definition of Done Completeness** — is every DoD achievable and objectively verifiable?
+   Return a verdict per dimension and a final sprint verdict: ✅ SPRINT APPROVED or ❌ SPRINT BLOCKED with a list of P0/P1 findings."
+
+   **Process Architect verdict:**
+   - **SPRINT APPROVED:** Proceed to step 5 (UI Canvas Gate) or Phase 3 if no UI tasks.
+   - **SPRINT BLOCKED:** For every P0/P1 finding:
+     1. Route corrections to **Scrum Master** for task file updates.
+     2. Return to the Reviewer for a targeted re-review of the corrected files.
+     3. Re-submit to the **Architect** for re-approval.
+     4. Maximum **3 approval cycles**. After 3 failures, halt and escalate to the user.
+
+   > **This gate is the permanent defense against implementation sprints that exist solely to fix architectural drift. It cannot be skipped, abbreviated, or delegated to the Reviewer.**
+
+5. **UI Canvas Gate (Designer — MANDATORY before any UI implementation):**
    IF the sprint has **3 or more UI tasks** in the same feature area OR introduces a **new major UI section**, you MUST call the **Designer** agent to produce a UI Canvas BEFORE any implementation begins.
    > **This step is the Designer's responsibility. NOT the Scrum Master's. NOT the Architect's. NOT any Coder's. ONLY the Designer creates UI Canvas and Design Spec files.**
+   > **This gate runs AFTER the Architect Approval Gate (step 4). The Architect must approve the sprint before any design work begins.**
    * **Directive to Designer:** "Read `SYSTEM_ARCHITECTURE.md` (for API availability across services), each service's `ARCHITECTURE.md` relevant to the frontend, `BACKLOG.md`, `sprint_x.md`, all UI task files for this sprint, and any previous `UI_CANVAS_sprint_*.md`. **Also read `docs/ui-canvas.md` for the authoritative design system (brand colors, typography, animations, component library, accessibility standards) and the role-specific canvas from `docs/` matching this sprint's scope (e.g., `docs/customer-ui-canvas.md` for customer-facing features).** These docs/ canvases provide screen-level blueprints — use them as starting point, adapt to shadcn/ui + TailwindCSS realities, and propose improvements where the canvas wireframes conflict with accessibility or component capabilities. Generate `UI_CANVAS_sprint_x.md` covering: scope & context, design philosophy, shared design tokens, use case → screen mapping, navigation flow (Mermaid), screen specifications with ASCII wireframes, and screen inventory. Scope to THIS sprint's screens ONLY."
    * **Feasibility Gate (max 3 rounds):** Call **Reviewer** to review the UI Canvas for technical feasibility. If the Reviewer flags issues, return to the **Designer** (NOT the Scrum Master) for revisions. After 3 failed cycles, escalate to the user.
 
-5. **Design Spec Gate (Designer — MANDATORY for every UI task):**
+6. **Design Spec Gate (Designer — MANDATORY for every UI task):**
    FOR EACH task that involves ANY visual element (pages, components, layout, styling, modals, forms, toasts, navigation), you MUST call the **Designer** agent to produce a Design Spec.
    > **This is a BLOCKING gate. NO Coder may begin IMPLEMENT-FIRST work without a `DESIGN_SPEC_task_y.md` produced by the Designer. If you skip this step, Implementation WILL be halted.**
    * **Directive to Designer:** "Read the relevant service `ARCHITECTURE.md` files, `BACKLOG.md`, `sprint_x_task_y.md`, and `UI_CANVAS_sprint_x.md` (if it exists). **Also read `docs/ui-canvas.md` for design system tokens and the matching role-specific canvas from `docs/` for screen-level blueprints. Read `docs/data-dictionary.md` for status values and enum options that drive UI state, and `docs/api-contracts.md` to verify data availability per screen.** Generate `DESIGN_SPEC_task_y.md` with exact design tokens, component blueprints, all interactive states, empty states, and error states. If a UI Canvas exists, inherit shared tokens. NO VAGUENESS."
