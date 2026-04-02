@@ -314,7 +314,7 @@ services:
           memory: 256m
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.user-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/customer`) || PathPrefix(`/v1/profile`) || PathPrefix(`/v1/roles`) || PathPrefix(`/v1/invitations`) || PathPrefix(`/v1/owner`) || PathPrefix(`/v1/webhooks`))"
+      - "traefik.http.routers.user-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/auth`) || PathPrefix(`/v1/customer`) || PathPrefix(`/v1/profile`) || PathPrefix(`/v1/roles`) || PathPrefix(`/v1/invitations`) || PathPrefix(`/v1/owner`) || PathPrefix(`/v1/webhooks`))"
       - "traefik.http.routers.user-service.entrypoints=web"
       - "traefik.http.routers.user-service.middlewares=secure-headers@file"
       - "traefik.http.services.user-service.loadbalancer.server.port=3001"
@@ -394,7 +394,7 @@ services:
       ZITADEL_JWKS_URL: ${MENU_SERVICE_ZITADEL_JWKS_URL}
       ZITADEL_AUDIENCE: ${MENU_SERVICE_ZITADEL_AUDIENCE}
       JWT_AUDIENCE: ${MENU_SERVICE_JWT_AUDIENCE}
-      USER_SERVICE_URL: ${MENU_SERVICE_USER_SERVICE_INTERNAL_URL}
+      USER_SERVICE_INTERNAL_URL: ${MENU_SERVICE_USER_SERVICE_INTERNAL_URL}
       R2_ENDPOINT: ${MENU_SERVICE_R2_ENDPOINT}
       R2_BUCKET_MENU_ITEMS: ${MENU_SERVICE_R2_BUCKET_MENU_ITEMS}
       R2_BUCKET_QR: ${MENU_SERVICE_R2_BUCKET_QR}
@@ -687,6 +687,8 @@ services:
           VITE_AUTH_BASE_URL=${FRONTEND_VITE_AUTH_BASE_URL}
           VITE_WS_URL=${FRONTEND_VITE_WS_URL}
           VITE_ANALYTICS_WS_URL=${FRONTEND_VITE_ANALYTICS_WS_URL}
+          VITE_ZITADEL_CLIENT_ID=${FRONTEND_VITE_ZITADEL_CLIENT_ID}
+          VITE_ZITADEL_PROJECT_ID=${FRONTEND_VITE_ZITADEL_PROJECT_ID}
           VITE_TRACE_HEADER=${FRONTEND_VITE_TRACE_HEADER}
           VITE_PWA_NAME=${FRONTEND_VITE_PWA_NAME}
           VITE_PWA_SHORT_NAME=${FRONTEND_VITE_PWA_SHORT_NAME}
