@@ -1,7 +1,7 @@
 ---
 name: Orchestrator
 description: Senior Agile Lead & State Manager
-model: Claude Sonnet 4.6 (copilot)
+model: GPT-5.4 (copilot)
 tools: [vscode, execute, read, agent, 'mcp_docker/*', browser, edit, search, web, todo]
 ---
 
