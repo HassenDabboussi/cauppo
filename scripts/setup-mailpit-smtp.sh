@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-${ROOT_DIR}/docker-compose.yml}"
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-${ROOT_DIR}/envs/.env.development}"
 ZITADEL_BASE_URL="${ZITADEL_BASE_URL:-http://auth.cauppo.localhost}"
+ZITADEL_LOGIN_CLIENT_PAT_FILE="${ZITADEL_LOGIN_CLIENT_PAT_FILE:-}"
 SMTP_PROVIDER_DESCRIPTION="${SMTP_PROVIDER_DESCRIPTION:-cauppo-local-mailpit}"
 SMTP_HOST="${SMTP_HOST:-mailpit:1025}"
 SMTP_TLS="${SMTP_TLS:-false}"
@@ -14,6 +15,8 @@ SMTP_SENDER_NAME="${SMTP_SENDER_NAME:-Cauppo}"
 SMTP_REPLY_TO_ADDRESS="${SMTP_REPLY_TO_ADDRESS:-${SMTP_SENDER_ADDRESS}}"
 ZITADEL_ADMIN_LOGIN_NAME="${ZITADEL_ADMIN_LOGIN_NAME:-admin@cauppo.auth.cauppo.localhost}"
 ZITADEL_ADMIN_PASSWORD="${ZITADEL_ADMIN_PASSWORD:-Admin1234!}"
+ZITADEL_PROJECT_ID="${ZITADEL_PROJECT_ID:-366835593776201736}"
+ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE="${ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE:-urn:zitadel:iam:org:project:id:${ZITADEL_PROJECT_ID}:aud}"
 ZITADEL_OIDC_CLIENT_ID="${ZITADEL_OIDC_CLIENT_ID:-366838122941579272}"
 ZITADEL_OIDC_REDIRECT_URI="${ZITADEL_OIDC_REDIRECT_URI:-http://app.cauppo.localhost/auth/callback}"
 
@@ -39,11 +42,11 @@ ensure_running_service() {
 
 read_login_client_pat() {
   if compose ps --status running --services | grep -qx 'zitadel-login'; then
-    compose exec -T zitadel-login sh -lc "cat /current-dir/login-client.pat"
+    compose exec -T zitadel-login sh -lc "cat '$ZITADEL_LOGIN_CLIENT_PAT_FILE'"
     return
   fi
 
-  compose exec -T zitadel sh -lc "cat /current-dir/login-client.pat"
+  compose exec -T zitadel sh -lc "cat '$ZITADEL_LOGIN_CLIENT_PAT_FILE'"
 }
 
 require_command docker
@@ -53,6 +56,15 @@ if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
   echo "Compose env file not found: $COMPOSE_ENV_FILE" >&2
   exit 1
 fi
+
+if [[ -z "$ZITADEL_LOGIN_CLIENT_PAT_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$COMPOSE_ENV_FILE"
+  set +a
+fi
+
+ZITADEL_LOGIN_CLIENT_PAT_FILE="${ZITADEL_LOGIN_CLIENT_PAT_FILE:-/current-dir/login-client.development.pat}"
 
 if [[ "$SMTP_TLS" != "true" && "$SMTP_TLS" != "false" ]]; then
   echo "SMTP_TLS must be 'true' or 'false'. Received: $SMTP_TLS" >&2
@@ -79,6 +91,7 @@ export SMTP_SENDER_NAME
 export SMTP_REPLY_TO_ADDRESS
 export ZITADEL_ADMIN_LOGIN_NAME
 export ZITADEL_ADMIN_PASSWORD
+export ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE
 export ZITADEL_OIDC_CLIENT_ID
 export ZITADEL_OIDC_REDIRECT_URI
 
@@ -94,6 +107,7 @@ const requiredEnv = [
   'SMTP_REPLY_TO_ADDRESS',
   'ZITADEL_ADMIN_LOGIN_NAME',
   'ZITADEL_ADMIN_PASSWORD',
+  'ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE',
   'ZITADEL_OIDC_CLIENT_ID',
   'ZITADEL_OIDC_REDIRECT_URI',
 ]
@@ -114,6 +128,7 @@ const senderName = process.env.SMTP_SENDER_NAME
 const replyToAddress = process.env.SMTP_REPLY_TO_ADDRESS
 const adminLoginName = process.env.ZITADEL_ADMIN_LOGIN_NAME
 const adminPassword = process.env.ZITADEL_ADMIN_PASSWORD
+const sharedProjectAudienceScope = process.env.ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE
 const oidcClientId = process.env.ZITADEL_OIDC_CLIENT_ID
 const oidcRedirectUri = process.env.ZITADEL_OIDC_REDIRECT_URI
 
@@ -184,7 +199,7 @@ const createAdminAccessToken = async () => {
     response_type: 'code',
     client_id: oidcClientId,
     redirect_uri: oidcRedirectUri,
-    scope: 'openid profile email offline_access urn:zitadel:iam:org:project:id:zitadel:aud',
+    scope: `openid profile email offline_access ${sharedProjectAudienceScope}`,
     state: `mailpit-${Date.now()}`,
   }).toString()
 

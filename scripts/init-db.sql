@@ -32,6 +32,9 @@ $$;
 SELECT 'CREATE DATABASE zitadel'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'zitadel')\gexec
 
+SELECT 'CREATE DATABASE zitadel_test'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'zitadel_test')\gexec
+
 SELECT 'CREATE DATABASE cauppo_users OWNER cauppo_user'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'cauppo_users')\gexec
 
