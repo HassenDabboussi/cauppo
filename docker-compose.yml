@@ -1,5 +1,7 @@
-name: cauppo
-
+# Repo-root direct-compose still uses this full shared graph definition for the
+# two committed env files, but Sprint 12b Task 2.1 makes isolated-test the only
+# active repo-root suite and runtime lane. Release development occupancy before
+# starting isolated-test, and do not run the two lanes in parallel.
 services:
   postgres:
     image: postgres:18.3-alpine
@@ -9,10 +11,14 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
-      - "127.0.0.1:5432:5432"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_POSTGRES}:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # PostgreSQL 18 stores the live cluster under /var/lib/postgresql/18/docker.
+      - postgres-data:/var/lib/postgresql/18/docker
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      - ./menu-service/migrations:/docker-entrypoint-initdb.d/menu-service-migrations:ro
+      - ./order-service/migrations:/docker-entrypoint-initdb.d/order-service-migrations:ro
+      - ./analytics-service/migrations:/docker-entrypoint-initdb.d/analytics-service-migrations:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -37,9 +43,9 @@ services:
       - --appendonly
       - yes
       - --requirepass
-      - cauppo_redis
+      - ${REDIS_PASSWORD}
     ports:
-      - "127.0.0.1:6379:6379"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_REDIS}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -47,7 +53,7 @@ services:
         - CMD
         - redis-cli
         - -a
-        - cauppo_redis
+        - ${REDIS_PASSWORD}
         - ping
       interval: 10s
       timeout: 5s
@@ -65,12 +71,12 @@ services:
     image: rabbitmq:4.2.5-management-alpine
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: cauppo
-      RABBITMQ_DEFAULT_PASS: cauppo
-      RABBITMQ_DEFAULT_VHOST: /cauppo
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST}
     ports:
-      - "127.0.0.1:5672:5672"
-      - "127.0.0.1:15672:15672"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_RABBITMQ}:5672"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_RABBITMQ_MANAGEMENT}:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
@@ -100,7 +106,7 @@ services:
       - --providers.docker=true
       - --providers.docker.endpoint=tcp://host.docker.internal:2375
       - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=cauppo-edge
+      - --providers.docker.network=${CAUPPO_COMPOSE_EDGE_NETWORK}
       - --providers.file.filename=/etc/traefik/dynamic.yml
       - --entrypoints.web.address=:80
       # secure-headers is NOT a global middleware — it must be applied per-router.
@@ -112,8 +118,8 @@ services:
     volumes:
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
     ports:
-      - "127.0.0.1:80:80"
-      - "127.0.0.1:8090:8080"
+      - "127.0.0.1:${CAUPPO_HOST_PORT_TRAEFIK_WEB}:80"
+      - "127.0.0.1:${CAUPPO_HOST_PORT_TRAEFIK_DASHBOARD}:8080"
     healthcheck:
       test:
         - CMD-SHELL
@@ -136,24 +142,210 @@ services:
         aliases:
           - auth.cauppo.localhost
 
+  zitadel-db-ready:
+    image: postgres:18.3-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        until psql "postgresql://postgres:postgres@postgres:5432/postgres?sslmode=disable" -c 'select 1' >/dev/null 2>&1; do
+          echo 'waiting for postgres to accept SQL connections for zitadel bootstrap'
+          sleep 1
+        done
+    networks:
+      - cauppo-internal
+    restart: "no"
+
+  zitadel-development-state-guard:
+    image: postgres:18.3-alpine
+    depends_on:
+      zitadel-db-ready:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: postgres
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE: ${CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE:-preserve-only}
+      ZITADEL_DATABASE_POSTGRES_DATABASE: ${ZITADEL_DATABASE_POSTGRES_DATABASE}
+      USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
+      IAM_LOGIN_CLIENT: ${IAM_LOGIN_CLIENT}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$${CAUPPO_ENV_PROVENANCE}" != "development" ]; then
+          echo "zitadel-development-state-guard: skipping non-development environment $${CAUPPO_ENV_PROVENANCE}"
+          exit 0
+        fi
+
+        expected_pat_name="$(basename "$${IAM_LOGIN_CLIENT}")"
+        runtime_pat_name="$(basename "$${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}")"
+
+        if [ "$${expected_pat_name}" != "$${runtime_pat_name}" ]; then
+          echo "zitadel-development-state-guard: IAM_LOGIN_CLIENT basename $${expected_pat_name} does not match runtime PAT $${runtime_pat_name}" >&2
+          exit 1
+        fi
+
+        db_exists="$(psql "postgresql://postgres:postgres@postgres:5432/postgres?sslmode=disable" -Atc "select case when exists (select 1 from pg_database where datname = '$${ZITADEL_DATABASE_POSTGRES_DATABASE}') then 'yes' else 'no' end")"
+        db_has_state="no"
+
+        if [ "$${db_exists}" = "yes" ]; then
+          db_has_state="$(psql "postgresql://postgres:postgres@postgres:5432/$${ZITADEL_DATABASE_POSTGRES_DATABASE}?sslmode=disable" -Atc "select case when exists (select 1 from projections.instances limit 1) then 'yes' else 'no' end" 2>/dev/null || printf 'no')"
+        fi
+
+        pat_exists="no"
+        if [ -s "$${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}" ]; then
+          pat_exists="yes"
+        fi
+
+        case "$${CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE}" in
+          preserve-only)
+            if [ "$${db_has_state}" = "yes" ] && [ "$${pat_exists}" = "yes" ]; then
+              echo "zitadel-development-state-guard: preserved development Zitadel DB state and IAM_LOGIN_CLIENT artifact detected"
+              exit 0
+            fi
+
+            if [ "$${db_has_state}" = "no" ] && [ "$${pat_exists}" = "no" ]; then
+              echo "zitadel-development-state-guard: refusing implicit development reinit because both the Zitadel DB state and IAM_LOGIN_CLIENT artifact are absent; recover the matched pair or set CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE=allow-empty-init for an intentional rebuild" >&2
+              exit 1
+            fi
+
+            echo "zitadel-development-state-guard: refusing development startup because the Zitadel DB state and IAM_LOGIN_CLIENT artifact no longer match; recover the matched development pair instead of allowing start-from-init to present a fresh state behind the same URL" >&2
+            exit 1
+            ;;
+          allow-empty-init)
+            if [ "$${db_has_state}" = "yes" ] && [ "$${pat_exists}" = "yes" ]; then
+              echo "zitadel-development-state-guard: preserved development Zitadel DB state and IAM_LOGIN_CLIENT artifact detected"
+              exit 0
+            fi
+
+            if [ "$${db_has_state}" = "no" ] && [ "$${pat_exists}" = "no" ]; then
+              echo "zitadel-development-state-guard: operator approved intentional empty-state development init for this run"
+              exit 0
+            fi
+
+            echo "zitadel-development-state-guard: refusing development startup because the Zitadel DB state and IAM_LOGIN_CLIENT artifact are inconsistent; intentional rebuild is allowed only when both are absent together" >&2
+            exit 1
+            ;;
+          *)
+            echo "zitadel-development-state-guard: unsupported CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE=$${CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE}" >&2
+            exit 1
+            ;;
+        esac
+    volumes:
+      - type: bind
+        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
+        target: /var/run/cauppo-auth
+        read_only: true
+    networks:
+      - cauppo-internal
+    restart: "no"
+
+  zitadel-isolated-test-state-guard:
+    image: postgres:18.3-alpine
+    depends_on:
+      zitadel-db-ready:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: postgres
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE: ${CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE:-preserve-only}
+      ZITADEL_DATABASE_POSTGRES_DATABASE: ${ZITADEL_DATABASE_POSTGRES_DATABASE}
+      USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
+      IAM_LOGIN_CLIENT: ${IAM_LOGIN_CLIENT}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$${CAUPPO_ENV_PROVENANCE}" != "isolated-test" ]; then
+          echo "zitadel-isolated-test-state-guard: skipping non-isolated-test environment $${CAUPPO_ENV_PROVENANCE}"
+          exit 0
+        fi
+
+        expected_pat_name="$(basename "$${IAM_LOGIN_CLIENT}")"
+        runtime_pat_name="$(basename "$${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}")"
+
+        if [ "$${expected_pat_name}" != "$${runtime_pat_name}" ]; then
+          echo "zitadel-isolated-test-state-guard: IAM_LOGIN_CLIENT basename $${expected_pat_name} does not match runtime PAT $${runtime_pat_name}" >&2
+          exit 1
+        fi
+
+        db_exists="$(psql "postgresql://postgres:postgres@postgres:5432/postgres?sslmode=disable" -Atc "select case when exists (select 1 from pg_database where datname = '$${ZITADEL_DATABASE_POSTGRES_DATABASE}') then 'yes' else 'no' end")"
+        db_has_state="no"
+
+        if [ "$${db_exists}" = "yes" ]; then
+          db_has_state="$(psql "postgresql://postgres:postgres@postgres:5432/$${ZITADEL_DATABASE_POSTGRES_DATABASE}?sslmode=disable" -Atc "select case when exists (select 1 from projections.instances limit 1) then 'yes' else 'no' end" 2>/dev/null || printf 'no')"
+        fi
+
+        pat_exists="no"
+        if [ -s "$${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}" ]; then
+          pat_exists="yes"
+        fi
+
+        case "$${CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE}" in
+          preserve-only)
+            if [ "$${db_has_state}" = "yes" ] && [ "$${pat_exists}" = "yes" ]; then
+              echo "zitadel-isolated-test-state-guard: preserved isolated-test Zitadel DB state and IAM_LOGIN_CLIENT artifact detected"
+              exit 0
+            fi
+
+            if [ "$${db_has_state}" = "no" ] && [ "$${pat_exists}" = "no" ]; then
+              echo "zitadel-isolated-test-state-guard: refusing implicit isolated-test reinit because both the Zitadel DB state and IAM_LOGIN_CLIENT artifact are absent; recover the matched pair or set CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE=allow-empty-init for an intentional isolated-test rebuild" >&2
+              exit 1
+            fi
+
+            echo "zitadel-isolated-test-state-guard: refusing isolated-test startup because the Zitadel DB state and IAM_LOGIN_CLIENT artifact no longer match; recover the matched isolated-test pair instead of allowing start-from-init to present a fresh state behind the shared auth URL" >&2
+            exit 1
+            ;;
+          allow-empty-init)
+            if [ "$${db_has_state}" = "yes" ] && [ "$${pat_exists}" = "yes" ]; then
+              echo "zitadel-isolated-test-state-guard: preserved isolated-test Zitadel DB state and IAM_LOGIN_CLIENT artifact detected"
+              exit 0
+            fi
+
+            if [ "$${db_has_state}" = "no" ] && [ "$${pat_exists}" = "no" ]; then
+              echo "zitadel-isolated-test-state-guard: operator approved intentional empty-state isolated-test init for this run"
+              exit 0
+            fi
+
+            echo "zitadel-isolated-test-state-guard: refusing isolated-test startup because the Zitadel DB state and IAM_LOGIN_CLIENT artifact are inconsistent; intentional rebuild is allowed only when both are absent together" >&2
+            exit 1
+            ;;
+          *)
+            echo "zitadel-isolated-test-state-guard: unsupported CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE=$${CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE}" >&2
+            exit 1
+            ;;
+        esac
+    volumes:
+      - type: bind
+        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
+        target: /var/run/cauppo-auth
+        read_only: true
+    networks:
+      - cauppo-internal
+    restart: "no"
+
   zitadel:
     image: ghcr.io/zitadel/zitadel:v4.12.3
     restart: unless-stopped
-    # user: "0" required — zitadel needs write access to the PAT volume; non-root uid cannot write /current-dir/login-client.pat.
     user: "0"
     command:
       - start-from-init
       - --masterkey
-      - ${ZITADEL_MASTERKEY:-MasterkeyNeedsToHave32Characters}
+      - "${ZITADEL_MASTERKEY:-MasterkeyNeedsToHave32Characters}"
     environment:
       ZITADEL_PORT: "8080"
       ZITADEL_EXTERNALDOMAIN: auth.cauppo.localhost
-      ZITADEL_EXTERNALPORT: "80"
+      ZITADEL_EXTERNALPORT: "${ZITADEL_EXTERNALPORT}"
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_TLS_ENABLED: "false"
       ZITADEL_DATABASE_POSTGRES_HOST: postgres
       ZITADEL_DATABASE_POSTGRES_PORT: "5432"
-      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_DATABASE: ${ZITADEL_DATABASE_POSTGRES_DATABASE}
       ZITADEL_DATABASE_POSTGRES_USER_USERNAME: postgres
       ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: postgres
       ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
@@ -164,24 +356,29 @@ services:
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Admin1234!
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
-      # Login client PAT — written to shared volume, read by zitadel-login service
-      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /current-dir/login-client.pat
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2029-01-01T00:00:00Z"
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: zitadel-login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: ZITADEL-login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2519-04-01T08:45:00Z"
       # Login v2 feature flags
       ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: http://auth.cauppo.localhost/ui/v2/login
-      ZITADEL_OIDC_DEFAULTLOGINURLV2: http://auth.cauppo.localhost/ui/v2/login/login?authRequest=
-      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: http://auth.cauppo.localhost/ui/v2/login/logout?post_logout_redirect=
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: "${FRONTEND_VITE_AUTH_BASE_URL}/ui/v2/login"
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: "${FRONTEND_VITE_AUTH_BASE_URL}/ui/v2/login/login?authRequest="
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: "${FRONTEND_VITE_AUTH_BASE_URL}/ui/v2/login/logout?post_logout_redirect="
       ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: "true"
-    ports:
-      - "127.0.0.1:8080:8080"
     volumes:
-      - zitadel-pat:/current-dir
+      - type: bind
+        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
+        target: /var/run/cauppo-auth
+    ports:
+      - "127.0.0.1:${CAUPPO_HOST_PORT_ZITADEL}:8080"
     depends_on:
-      postgres:
-        condition: service_healthy
+      zitadel-db-ready:
+        condition: service_completed_successfully
+      zitadel-development-state-guard:
+        condition: service_completed_successfully
+      zitadel-isolated-test-state-guard:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -193,7 +390,7 @@ services:
       start_period: 20s
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=cauppo-internal"
+      - "traefik.docker.network=${CAUPPO_COMPOSE_INTERNAL_NETWORK}"
       - "traefik.http.routers.zitadel.rule=Host(`auth.cauppo.localhost`) && !PathPrefix(`/ui/v2/login`)"
       - "traefik.http.routers.zitadel.entrypoints=web"
       - "traefik.http.routers.zitadel.priority=10"
@@ -215,13 +412,18 @@ services:
       # Route via Traefik so Host: auth.cauppo.localhost is set natively from the URL.
       # zitadel-login resolves auth.cauppo.localhost to Traefik (alias on cauppo-internal),
       # Traefik routes to Zitadel via h2c. No CUSTOM_REQUEST_HEADERS needed.
-      ZITADEL_API_URL: http://auth.cauppo.localhost
+      ZITADEL_API_URL: ${FRONTEND_VITE_AUTH_BASE_URL}
       NEXT_PUBLIC_BASE_PATH: /ui/v2/login
-      ZITADEL_SERVICE_USER_TOKEN_FILE: /current-dir/login-client.pat
+      ZITADEL_SERVICE_USER_TOKEN_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
       NODE_ENV: production
     volumes:
-      - zitadel-pat:/current-dir:ro
+      - type: bind
+        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
+        target: /var/run/cauppo-auth
+        read_only: true
     depends_on:
+      traefik:
+        condition: service_healthy
       zitadel:
         condition: service_healthy
     healthcheck:
@@ -234,7 +436,7 @@ services:
       start_period: 30s
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=cauppo-internal"
+      - "traefik.docker.network=${CAUPPO_COMPOSE_INTERNAL_NETWORK}"
       - "traefik.http.routers.zitadel-login.rule=Host(`auth.cauppo.localhost`) && PathPrefix(`/ui/v2/login`)"
       - "traefik.http.routers.zitadel-login.entrypoints=web"
       - "traefik.http.routers.zitadel-login.priority=20"
@@ -250,6 +452,48 @@ services:
     networks:
       - cauppo-internal
 
+  # Private runtime helper for Zitadel complement-token callbacks. The runtime
+  # module is owned by user-service; repo-root Compose only hosts the container
+  # that Zitadel calls after the operator wires the environment's preaccesstoken
+  # action. user-service keeps it as a hard readiness dependency so selected-role
+  # claim injection fails closed without changing the public /v1/auth/* contract.
+  zitadel-complement-token-target:
+    image: node:22.17.0-alpine3.22
+    restart: unless-stopped
+    user: "node"
+    command:
+      - node
+      - /app/zitadel-complement-token-target.mjs
+    environment:
+      PORT: "8091"
+      CAUPPO_SELECTED_ROLE_METADATA_KEY: cauppo.selected_role.v1
+    volumes:
+      - ./user-service/src/integrations/zitadel/complement-token-target.mjs:/app/zitadel-complement-token-target.mjs:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8091/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${CAUPPO_COMPOSE_INTERNAL_NETWORK}"
+      - "traefik.http.routers.zitadel-complement-token-target.rule=Host(`auth.cauppo.localhost`) && PathPrefix(`/zitadel-complement-token-target`)"
+      - "traefik.http.routers.zitadel-complement-token-target.entrypoints=web"
+      - "traefik.http.routers.zitadel-complement-token-target.priority=25"
+      - "traefik.http.routers.zitadel-complement-token-target.middlewares=zitadel-complement-token-target-strip,secure-headers@file"
+      - "traefik.http.middlewares.zitadel-complement-token-target-strip.stripprefix.prefixes=/zitadel-complement-token-target"
+      - "traefik.http.services.zitadel-complement-token-target.loadbalancer.server.port=8091"
+    networks:
+      - cauppo-internal
+
   user-service:
     build:
       context: ./user-service
@@ -259,18 +503,25 @@ services:
       PORT: ${USER_SERVICE_PORT}
       NODE_ENV: ${NODE_ENV}
       CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
       CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
       DATABASE_URL: ${USER_SERVICE_DATABASE_URL}
       REDIS_URL: ${USER_SERVICE_REDIS_URL}
       RABBITMQ_URL: ${USER_SERVICE_RABBITMQ_URL}
-      ZITADEL_ISSUER: ${USER_SERVICE_ZITADEL_ISSUER}
-      ZITADEL_ISSUER_URL: ${USER_SERVICE_ZITADEL_ISSUER_URL}
-      ZITADEL_JWKS_URL: ${USER_SERVICE_ZITADEL_JWKS_URL}
       ZITADEL_API_URL: ${USER_SERVICE_ZITADEL_API_URL}
       ZITADEL_INTERNAL_URL: ${USER_SERVICE_ZITADEL_INTERNAL_URL}
       ZITADEL_LOGIN_CLIENT_PAT_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
+      ZITADEL_ISSUER: ${USER_SERVICE_ZITADEL_ISSUER}
+      ZITADEL_ISSUER_URL: ${USER_SERVICE_ZITADEL_ISSUER_URL}
+      ZITADEL_JWKS_URL: ${USER_SERVICE_ZITADEL_JWKS_URL}
+      ZITADEL_PROJECT_ID: ${ZITADEL_PROJECT_ID}
+      ZITADEL_SHARED_PROJECT_ID: ${ZITADEL_SHARED_PROJECT_ID}
+      ZITADEL_SHARED_PROJECT_AUDIENCE: ${ZITADEL_SHARED_PROJECT_AUDIENCE}
+      ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE: ${ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE}
       ZITADEL_AUDIENCE: ${USER_SERVICE_ZITADEL_AUDIENCE}
       JWT_AUDIENCE: ${USER_SERVICE_JWT_AUDIENCE}
+      ZITADEL_OIDC_CLIENT_ID: ${USER_SERVICE_ZITADEL_OIDC_CLIENT_ID}
       ZITADEL_CLIENT_ID: ${USER_SERVICE_ZITADEL_CLIENT_ID}
       ZITADEL_CLIENT_SECRET: ${USER_SERVICE_ZITADEL_CLIENT_SECRET}
       ZITADEL_MANAGEMENT_CLIENT_ID: ${USER_SERVICE_ZITADEL_MANAGEMENT_CLIENT_ID}
@@ -292,17 +543,32 @@ services:
       KONNECT_WEBHOOK_SECRET: ${USER_SERVICE_KONNECT_WEBHOOK_SECRET}
       CAUPPO_PUBLIC_APP_URL: ${USER_SERVICE_CAUPPO_PUBLIC_APP_URL}
     volumes:
-      - zitadel-pat:/current-dir:ro
+      - type: bind
+        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
+        target: /var/run/cauppo-auth
+        read_only: true
     ports:
-      - "127.0.0.1:3001:3001"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_USER_SERVICE}:3001"
     depends_on:
       postgres:
         condition: service_healthy
+      traefik:
+        condition: service_healthy
+      zitadel:
+        condition: service_healthy
+      # Keep the service-owned complement-token target fail-closed for user-service's
+      # existing /v1/auth/* bearer flow.
+      zitadel-complement-token-target:
+        condition: service_healthy
+      user-service-db-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      minio-init:
         condition: service_healthy
       mailpit:
         condition: service_healthy
@@ -321,13 +587,74 @@ services:
           memory: 256m
     labels:
       - "traefik.enable=true"
+      # Public /v1/auth/* stays on user-service. Internal auth helpers remain private.
       - "traefik.http.routers.user-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/auth`) || PathPrefix(`/v1/customer`) || PathPrefix(`/v1/profile`) || PathPrefix(`/v1/roles`) || PathPrefix(`/v1/invitations`) || PathPrefix(`/v1/owner`) || PathPrefix(`/v1/webhooks`))"
       - "traefik.http.routers.user-service.entrypoints=web"
+      - "traefik.http.routers.user-service.priority=10"
       - "traefik.http.routers.user-service.middlewares=secure-headers@file"
       - "traefik.http.services.user-service.loadbalancer.server.port=3001"
     networks:
       - cauppo-edge
       - cauppo-internal
+
+  user-service-db-init:
+    image: oven/bun:1.3.11-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /workspace/user-service
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
+      CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
+      DATABASE_URL: ${USER_SERVICE_DATABASE_URL}
+      REDIS_URL: ${USER_SERVICE_REDIS_URL}
+      RABBITMQ_URL: ${USER_SERVICE_RABBITMQ_URL}
+      ZITADEL_API_URL: ${USER_SERVICE_ZITADEL_API_URL}
+      ZITADEL_INTERNAL_URL: ${USER_SERVICE_ZITADEL_INTERNAL_URL}
+      ZITADEL_LOGIN_CLIENT_PAT_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
+      ZITADEL_ISSUER: ${USER_SERVICE_ZITADEL_ISSUER}
+      ZITADEL_ISSUER_URL: ${USER_SERVICE_ZITADEL_ISSUER_URL}
+      ZITADEL_JWKS_URL: ${USER_SERVICE_ZITADEL_JWKS_URL}
+      ZITADEL_PROJECT_ID: ${ZITADEL_PROJECT_ID}
+      ZITADEL_SHARED_PROJECT_ID: ${ZITADEL_SHARED_PROJECT_ID}
+      ZITADEL_SHARED_PROJECT_AUDIENCE: ${ZITADEL_SHARED_PROJECT_AUDIENCE}
+      ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE: ${ZITADEL_SHARED_PROJECT_AUDIENCE_SCOPE}
+      ZITADEL_AUDIENCE: ${USER_SERVICE_ZITADEL_AUDIENCE}
+      JWT_AUDIENCE: ${USER_SERVICE_JWT_AUDIENCE}
+      ZITADEL_OIDC_CLIENT_ID: ${USER_SERVICE_ZITADEL_OIDC_CLIENT_ID}
+      ZITADEL_CLIENT_ID: ${USER_SERVICE_ZITADEL_CLIENT_ID}
+      ZITADEL_CLIENT_SECRET: ${USER_SERVICE_ZITADEL_CLIENT_SECRET}
+      ZITADEL_MANAGEMENT_CLIENT_ID: ${USER_SERVICE_ZITADEL_MANAGEMENT_CLIENT_ID}
+      ZITADEL_MANAGEMENT_CLIENT_SECRET: ${USER_SERVICE_ZITADEL_MANAGEMENT_CLIENT_SECRET}
+      RESEND_API_KEY: ${USER_SERVICE_RESEND_API_KEY}
+      RESEND_FROM_EMAIL: ${USER_SERVICE_RESEND_FROM_EMAIL}
+      R2_ENDPOINT: ${USER_SERVICE_R2_ENDPOINT}
+      R2_ACCOUNT_ID: ${USER_SERVICE_R2_ACCOUNT_ID}
+      R2_BUCKET_AVATARS: ${USER_SERVICE_R2_BUCKET_AVATARS}
+      R2_BUCKET_RESTAURANTS: ${USER_SERVICE_R2_BUCKET_RESTAURANTS}
+      R2_BUCKET_NAME: ${USER_SERVICE_R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${USER_SERVICE_R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${USER_SERVICE_R2_SECRET_ACCESS_KEY}
+      R2_PUBLIC_URL: ${USER_SERVICE_R2_PUBLIC_URL}
+      KONNECT_API_KEY: ${USER_SERVICE_KONNECT_API_KEY}
+      KONNECT_WEBHOOK_SECRET: ${USER_SERVICE_KONNECT_WEBHOOK_SECRET}
+      CAUPPO_PUBLIC_APP_URL: ${USER_SERVICE_CAUPPO_PUBLIC_APP_URL}
+    entrypoint: >
+      /bin/sh -ec "
+        mkdir -p /workspace/user-service;
+        cp -R /source/. /workspace/user-service;
+        bun install;
+        bun run db:migrate;
+        echo 'user-service schema initialized';
+      "
+    volumes:
+      - ./user-service:/source:ro
+    networks:
+      - cauppo-internal
+    restart: "no"
 
   feedback-service:
     build:
@@ -338,6 +665,8 @@ services:
       PORT: ${FEEDBACK_SERVICE_PORT}
       NODE_ENV: ${NODE_ENV}
       CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
       CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
       DATABASE_URL: ${FEEDBACK_SERVICE_DATABASE_URL}
       REDIS_URL: ${FEEDBACK_SERVICE_REDIS_URL}
@@ -350,10 +679,12 @@ services:
       ZITADEL_CLIENT_ID: ${FEEDBACK_SERVICE_ZITADEL_CLIENT_ID}
       ORDER_SERVICE_INTERNAL_URL: ${FEEDBACK_SERVICE_ORDER_SERVICE_INTERNAL_URL}
     ports:
-      - "127.0.0.1:3002:3002"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_FEEDBACK_SERVICE}:3002"
     depends_on:
       postgres:
         condition: service_healthy
+      feedback-service-db-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
@@ -377,11 +708,35 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.feedback-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/feedback`) || PathPrefix(`/v1/manager/feedback`) || PathPrefix(`/v1/owner/feedback`))"
       - "traefik.http.routers.feedback-service.entrypoints=web"
+      - "traefik.http.routers.feedback-service.priority=20"
       - "traefik.http.routers.feedback-service.middlewares=secure-headers@file"
       - "traefik.http.services.feedback-service.loadbalancer.server.port=3002"
     networks:
       - cauppo-edge
       - cauppo-internal
+
+  feedback-service-db-init:
+    image: oven/bun:1.3.11-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /workspace/feedback-service
+    environment:
+      DATABASE_URL: ${FEEDBACK_SERVICE_DATABASE_URL}
+    entrypoint: >
+      /bin/sh -c "
+        mkdir -p /workspace/feedback-service;
+        cp -R /source/. /workspace/feedback-service;
+        bun install;
+        bunx drizzle-kit push --force;
+        echo 'feedback-service schema initialized';
+        exit 0;
+      "
+    volumes:
+      - ./feedback-service:/source:ro
+    networks:
+      - cauppo-internal
+    restart: "no"
 
   menu-service:
     build:
@@ -392,6 +747,8 @@ services:
       PORT: ${MENU_SERVICE_PORT}
       NODE_ENV: ${NODE_ENV}
       CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
       CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
       DATABASE_URL: ${MENU_SERVICE_DATABASE_URL}
       REDIS_URL: ${MENU_SERVICE_REDIS_URL}
@@ -408,13 +765,19 @@ services:
       R2_ACCESS_KEY_ID: ${MENU_SERVICE_R2_ACCESS_KEY_ID}
       R2_SECRET_ACCESS_KEY: ${MENU_SERVICE_R2_SECRET_ACCESS_KEY}
     ports:
-      - "127.0.0.1:8081:8081"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_MENU_SERVICE}:8081"
     depends_on:
       postgres:
         condition: service_healthy
+      menu-service-db-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
         condition: service_healthy
     healthcheck:
       test:
@@ -439,6 +802,50 @@ services:
       - cauppo-edge
       - cauppo-internal
 
+  menu-service-db-init:
+    image: postgres:18.3-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${MENU_SERVICE_DATABASE_URL}
+    entrypoint: >
+      /bin/sh -c "
+        set -eu;
+        wait_for_connection() {
+          target=\"$$1\";
+          label=\"$$2\";
+          attempts=0;
+          until psql \"$$target\" -v ON_ERROR_STOP=1 -c 'select 1' >/dev/null 2>&1; do
+            attempts=$$((attempts + 1));
+            if [ \"$$attempts\" -ge 30 ]; then
+              echo \"Timed out waiting for $$label\";
+              exit 1;
+            fi;
+            echo \"Waiting for $$label ($$attempts/30)\";
+            sleep 2;
+          done;
+        }
+        wait_for_connection \"$$DATABASE_URL\" \"menu-service database connection\";
+        found=0;
+        for migration in /migrations/*.sql; do
+          [ -f \"$$migration\" ] || continue;
+          found=1;
+          echo \"Applying menu-service migration $$(basename \"$$migration\")\";
+          psql \"$$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$$migration\";
+        done;
+        if [ \"$$found\" -eq 0 ]; then
+          echo 'menu-service migrations missing';
+          exit 1;
+        fi;
+        echo 'menu-service schema initialized';
+      "
+    volumes:
+      - ./menu-service/migrations:/migrations:ro
+    networks:
+      - cauppo-internal
+    restart: "no"
+
   order-service:
     build:
       context: ./order-service
@@ -448,6 +855,8 @@ services:
       PORT: ${ORDER_SERVICE_PORT}
       NODE_ENV: ${NODE_ENV}
       CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
       CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
       DATABASE_URL: ${ORDER_SERVICE_DATABASE_URL}
       REDIS_URL: ${ORDER_SERVICE_REDIS_URL}
@@ -461,10 +870,12 @@ services:
       ORDER_IDEMPOTENCY_TTL_SECONDS: ${ORDER_SERVICE_ORDER_IDEMPOTENCY_TTL_SECONDS}
       TABLE_SESSION_LOCK_TTL_SECONDS: ${ORDER_SERVICE_TABLE_SESSION_LOCK_TTL_SECONDS}
     ports:
-      - "127.0.0.1:8082:8082"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_ORDER_SERVICE}:8082"
     depends_on:
       postgres:
         condition: service_healthy
+      order-service-db-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
@@ -494,31 +905,93 @@ services:
       - cauppo-edge
       - cauppo-internal
 
+  order-service-db-init:
+    image: postgres:18.3-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${ORDER_SERVICE_DATABASE_URL}
+    entrypoint: >
+      /bin/sh -c "
+        set -eu;
+        wait_for_connection() {
+          target=\"$$1\";
+          label=\"$$2\";
+          attempts=0;
+          until psql \"$$target\" -v ON_ERROR_STOP=1 -c 'select 1' >/dev/null 2>&1; do
+            attempts=$$((attempts + 1));
+            if [ \"$$attempts\" -ge 30 ]; then
+              echo \"Timed out waiting for $$label\";
+              exit 1;
+            fi;
+            echo \"Waiting for $$label ($$attempts/30)\";
+            sleep 2;
+          done;
+        }
+        wait_for_connection \"$$DATABASE_URL\" \"order-service database connection\";
+        found=0;
+        for migration in /migrations/*.sql; do
+          [ -f \"$$migration\" ] || continue;
+          found=1;
+          echo \"Applying order-service migration $$(basename \"$$migration\")\";
+          psql \"$$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$$migration\";
+        done;
+        if [ \"$$found\" -eq 0 ]; then
+          echo 'order-service migrations missing';
+          exit 1;
+        fi;
+        echo 'order-service schema initialized';
+      "
+    volumes:
+      - ./order-service/migrations:/migrations:ro
+    networks:
+      - cauppo-internal
+    restart: "no"
+
   analytics-service:
     build:
       context: ./analytics-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    command: >
+      /bin/sh -ec "
+        export ANALYTICS_SERVICE_ZITADEL_ISSUER=\"$${ANALYTICS_SERVICE_ZITADEL_ISSUER_URL:-$${ANALYTICS_SERVICE_ZITADEL_ISSUER:-$${USER_SERVICE_ZITADEL_ISSUER_URL:-$${USER_SERVICE_ZITADEL_ISSUER:-}}}}\";
+        export ANALYTICS_SERVICE_ZITADEL_ISSUER_URL=\"$$ANALYTICS_SERVICE_ZITADEL_ISSUER\";
+        export ANALYTICS_SERVICE_ZITADEL_JWKS_URL=\"$${ANALYTICS_SERVICE_ZITADEL_JWKS_URL:-$${USER_SERVICE_ZITADEL_JWKS_URL:-}}\";
+        export ANALYTICS_SERVICE_ZITADEL_AUDIENCE=\"$${ANALYTICS_SERVICE_ZITADEL_AUDIENCE:-$${ZITADEL_SHARED_PROJECT_AUDIENCE:-$${USER_SERVICE_ZITADEL_AUDIENCE:-$${USER_SERVICE_JWT_AUDIENCE:-}}}}\";
+        export ANALYTICS_SERVICE_JWT_AUDIENCE=\"$${ANALYTICS_SERVICE_JWT_AUDIENCE:-$$ANALYTICS_SERVICE_ZITADEL_AUDIENCE}\";
+        export ZITADEL_ISSUER=\"$$ANALYTICS_SERVICE_ZITADEL_ISSUER\";
+        export ZITADEL_ISSUER_URL=\"$$ANALYTICS_SERVICE_ZITADEL_ISSUER_URL\";
+        export ZITADEL_JWKS_URL=\"$$ANALYTICS_SERVICE_ZITADEL_JWKS_URL\";
+        export ZITADEL_AUDIENCE=\"$$ANALYTICS_SERVICE_ZITADEL_AUDIENCE\";
+        export JWT_AUDIENCE=\"$$ANALYTICS_SERVICE_JWT_AUDIENCE\";
+        exec ./server;
+      "
     environment:
       PORT: ${ANALYTICS_SERVICE_PORT}
       NODE_ENV: ${NODE_ENV}
       CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
+      ANALYTICS_SERVICE_ZITADEL_ISSUER: ${ANALYTICS_SERVICE_ZITADEL_ISSUER}
+      ANALYTICS_SERVICE_ZITADEL_ISSUER_URL: ${ANALYTICS_SERVICE_ZITADEL_ISSUER_URL}
+      ANALYTICS_SERVICE_ZITADEL_JWKS_URL: ${ANALYTICS_SERVICE_ZITADEL_JWKS_URL}
+      ANALYTICS_SERVICE_ZITADEL_AUDIENCE: ${ANALYTICS_SERVICE_ZITADEL_AUDIENCE}
+      ANALYTICS_SERVICE_JWT_AUDIENCE: ${ANALYTICS_SERVICE_JWT_AUDIENCE}
       DATABASE_URL: ${ANALYTICS_SERVICE_DATABASE_URL}
       ANALYTICS_READ_REPLICA_URL: ${ANALYTICS_SERVICE_ANALYTICS_READ_REPLICA_URL}
       REDIS_URL: ${ANALYTICS_SERVICE_REDIS_URL}
       RABBITMQ_URL: ${ANALYTICS_SERVICE_RABBITMQ_URL}
-      ZITADEL_ISSUER: ${ANALYTICS_SERVICE_ZITADEL_ISSUER}
-      ZITADEL_ISSUER_URL: ${ANALYTICS_SERVICE_ZITADEL_ISSUER_URL}
-      ZITADEL_JWKS_URL: ${ANALYTICS_SERVICE_ZITADEL_JWKS_URL}
-      ZITADEL_AUDIENCE: ${ANALYTICS_SERVICE_ZITADEL_AUDIENCE}
-      JWT_AUDIENCE: ${ANALYTICS_SERVICE_JWT_AUDIENCE}
       USER_SERVICE_URL: ${ANALYTICS_SERVICE_USER_SERVICE_INTERNAL_URL}
       ANALYTICS_LIVE_TTL_HOURS: ${ANALYTICS_SERVICE_ANALYTICS_LIVE_TTL_HOURS}
     ports:
-      - "127.0.0.1:8083:8083"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_ANALYTICS_SERVICE}:8083"
     depends_on:
       postgres:
         condition: service_healthy
+      analytics-service-db-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
@@ -542,11 +1015,63 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.analytics-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/manager/analytics`) || PathPrefix(`/v1/owner/analytics`))"
       - "traefik.http.routers.analytics-service.entrypoints=web"
+      - "traefik.http.routers.analytics-service.priority=20"
       - "traefik.http.routers.analytics-service.middlewares=secure-headers@file"
       - "traefik.http.services.analytics-service.loadbalancer.server.port=8083"
     networks:
       - cauppo-edge
       - cauppo-internal
+
+  analytics-service-db-init:
+    image: postgres:18.3-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${ANALYTICS_SERVICE_DATABASE_URL}
+      ANALYTICS_READ_REPLICA_URL: ${ANALYTICS_SERVICE_ANALYTICS_READ_REPLICA_URL}
+    entrypoint: >
+      /bin/sh -c "
+        set -eu;
+        wait_for_connection() {
+          target=\"$$1\";
+          label=\"$$2\";
+          attempts=0;
+          until psql \"$$target\" -v ON_ERROR_STOP=1 -c 'select 1' >/dev/null 2>&1; do
+            attempts=$$((attempts + 1));
+            if [ \"$$attempts\" -ge 30 ]; then
+              echo \"Timed out waiting for $$label\";
+              exit 1;
+            fi;
+            echo \"Waiting for $$label ($$attempts/30)\";
+            sleep 2;
+          done;
+        }
+        found=0;
+        for target in \"$$DATABASE_URL\" \"$$ANALYTICS_READ_REPLICA_URL\"; do
+          if [ \"$$target\" = \"$$DATABASE_URL\" ]; then
+            wait_for_connection \"$$target\" \"analytics-service primary database connection\";
+          else
+            wait_for_connection \"$$target\" \"analytics-service read replica connection\";
+          fi;
+          for migration in /migrations/*.sql; do
+            [ -f \"$$migration\" ] || continue;
+            found=1;
+            echo \"Applying analytics-service migration $$(basename \"$$migration\") to $$target\";
+            psql \"$$target\" -v ON_ERROR_STOP=1 -f \"$$migration\";
+          done;
+        done;
+        if [ \"$$found\" -eq 0 ]; then
+          echo 'analytics-service migrations missing';
+          exit 1;
+        fi;
+        echo 'analytics-service schema initialized';
+      "
+    volumes:
+      - ./analytics-service/migrations:/migrations:ro
+    networks:
+      - cauppo-internal
+    restart: "no"
 
   notification-service:
     build:
@@ -557,8 +1082,12 @@ services:
       PORT: ${NOTIFICATION_SERVICE_PORT}
       NODE_ENV: ${NODE_ENV}
       CAUPPO_ENV: ${CAUPPO_ENV}
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
       CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
+      NOTIFICATION_SERVICE_REDIS_URL: ${NOTIFICATION_SERVICE_REDIS_URL}
       REDIS_URL: ${NOTIFICATION_SERVICE_REDIS_URL}
+      NOTIFICATION_SERVICE_RABBITMQ_URL: ${NOTIFICATION_SERVICE_RABBITMQ_URL}
       RABBITMQ_URL: ${NOTIFICATION_SERVICE_RABBITMQ_URL}
       ZITADEL_ISSUER: ${NOTIFICATION_SERVICE_ZITADEL_ISSUER}
       ZITADEL_ISSUER_URL: ${NOTIFICATION_SERVICE_ZITADEL_ISSUER_URL}
@@ -570,7 +1099,7 @@ services:
       WS_REPLAY_TTL_MINUTES: ${NOTIFICATION_SERVICE_WS_REPLAY_TTL_MINUTES}
       WS_MAX_CONNECTIONS_PER_USER: ${NOTIFICATION_SERVICE_WS_MAX_CONNECTIONS_PER_USER}
     ports:
-      - "127.0.0.1:8084:8084"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_NOTIFICATION_SERVICE}:8084"
     depends_on:
       redis:
         condition: service_healthy
@@ -605,11 +1134,11 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_MINIO_API}:9000"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_MINIO_CONSOLE}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -627,7 +1156,7 @@ services:
           memory: 256m
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=cauppo-internal"
+      - "traefik.docker.network=${CAUPPO_COMPOSE_INTERNAL_NETWORK}"
       - "traefik.http.routers.minio-console.rule=Host(`minio.cauppo.localhost`)"
       - "traefik.http.routers.minio-console.entrypoints=web"
       - "traefik.http.routers.minio-console.middlewares=secure-headers@file"
@@ -640,20 +1169,31 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    # Keep the helper alive after bucket creation so direct `docker compose ... up -d --wait`
+    # can treat it as healthy instead of failing on an exited one-shot container.
     entrypoint: >
       /bin/sh -c "
-        /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin;
-        /usr/bin/mc mb --ignore-existing local/cauppo-avatars;
-        /usr/bin/mc mb --ignore-existing local/cauppo-restaurants;
-        /usr/bin/mc mb --ignore-existing local/cauppo-assets;
-        /usr/bin/mc mb --ignore-existing local/cauppo-menu-items;
-        /usr/bin/mc mb --ignore-existing local/cauppo-qr;
-        /usr/bin/mc anonymous set download local/cauppo-avatars;
-        /usr/bin/mc anonymous set download local/cauppo-menu-items;
-        /usr/bin/mc anonymous set download local/cauppo-qr;
+        /usr/bin/mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+        /usr/bin/mc mb --ignore-existing local/${USER_SERVICE_R2_BUCKET_AVATARS};
+        /usr/bin/mc mb --ignore-existing local/${USER_SERVICE_R2_BUCKET_RESTAURANTS};
+        /usr/bin/mc mb --ignore-existing local/${USER_SERVICE_R2_BUCKET_NAME};
+        /usr/bin/mc mb --ignore-existing local/${MENU_SERVICE_R2_BUCKET_MENU_ITEMS};
+        /usr/bin/mc mb --ignore-existing local/${MENU_SERVICE_R2_BUCKET_QR};
+        /usr/bin/mc anonymous set download local/${USER_SERVICE_R2_BUCKET_AVATARS};
+        /usr/bin/mc anonymous set download local/${MENU_SERVICE_R2_BUCKET_MENU_ITEMS};
+        /usr/bin/mc anonymous set download local/${MENU_SERVICE_R2_BUCKET_QR};
         echo 'MinIO buckets initialized';
-        exit 0;
+        touch /tmp/minio-init-ready;
+        tail -f /dev/null;
       "
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/minio-init-ready
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - cauppo-internal
     restart: "no"
@@ -664,8 +1204,8 @@ services:
     environment:
       MP_UI_AUTH: mailpit:cauppo-mailpit
     ports:
-      - "127.0.0.1:1025:1025"
-      - "127.0.0.1:8025:8025"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_MAILPIT_SMTP}:1025"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_MAILPIT_WEB}:8025"
     healthcheck:
       test:
         - CMD-SHELL
@@ -683,6 +1223,39 @@ services:
       - cauppo-edge
       - cauppo-internal
 
+  test-env-guard:
+    image: alpine:3.21
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        [ "$${CAUPPO_TEST_ENV_APPROVED}" = "true" ] || { echo "Rejected: compose test entrypoints require CAUPPO_TEST_ENV_APPROVED=true."; exit 1; }
+        [ "$${CAUPPO_ENV}" = "test" ] || { echo "Rejected: compose test entrypoints require CAUPPO_ENV=test."; exit 1; }
+        [ "$${NODE_ENV}" = "test" ] || { echo "Rejected: compose test entrypoints require NODE_ENV=test."; exit 1; }
+        [ "$${CAUPPO_ENV_PROVENANCE}" = "isolated-test" ] || { echo "Rejected: compose test entrypoints require CAUPPO_ENV_PROVENANCE=isolated-test."; exit 1; }
+        [ "$${FRONTEND_VITE_APP_ENV}" = "test" ] || { echo "Rejected: frontend browser entrypoints require FRONTEND_VITE_APP_ENV=test."; exit 1; }
+        case "$${USER_SERVICE_DATABASE_URL}" in *_test|*_test\?*) ;; *) echo "Rejected: USER_SERVICE_DATABASE_URL must target a _test database."; exit 1 ;; esac
+        case "$${FEEDBACK_SERVICE_DATABASE_URL}" in *_test|*_test\?*) ;; *) echo "Rejected: FEEDBACK_SERVICE_DATABASE_URL must target a _test database."; exit 1 ;; esac
+        case "$${MENU_SERVICE_DATABASE_URL}" in *_test|*_test\?*) ;; *) echo "Rejected: MENU_SERVICE_DATABASE_URL must target a _test database."; exit 1 ;; esac
+        case "$${ORDER_SERVICE_DATABASE_URL}" in *_test|*_test\?*) ;; *) echo "Rejected: ORDER_SERVICE_DATABASE_URL must target a _test database."; exit 1 ;; esac
+        case "$${ANALYTICS_SERVICE_DATABASE_URL}" in *_test|*_test\?*) ;; *) echo "Rejected: ANALYTICS_SERVICE_DATABASE_URL must target a _test database."; exit 1 ;; esac
+        case "$${ANALYTICS_SERVICE_ANALYTICS_READ_REPLICA_URL}" in *_test|*_test\?*) ;; *) echo "Rejected: ANALYTICS_SERVICE_ANALYTICS_READ_REPLICA_URL must target a _test database."; exit 1 ;; esac
+    environment:
+      CAUPPO_ENV: ${CAUPPO_ENV}
+      NODE_ENV: ${NODE_ENV}
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
+      USER_SERVICE_DATABASE_URL: ${USER_SERVICE_DATABASE_URL}
+      FEEDBACK_SERVICE_DATABASE_URL: ${FEEDBACK_SERVICE_DATABASE_URL}
+      MENU_SERVICE_DATABASE_URL: ${MENU_SERVICE_DATABASE_URL}
+      ORDER_SERVICE_DATABASE_URL: ${ORDER_SERVICE_DATABASE_URL}
+      ANALYTICS_SERVICE_DATABASE_URL: ${ANALYTICS_SERVICE_DATABASE_URL}
+      ANALYTICS_SERVICE_ANALYTICS_READ_REPLICA_URL: ${ANALYTICS_SERVICE_ANALYTICS_READ_REPLICA_URL}
+      FRONTEND_VITE_APP_ENV: ${FRONTEND_VITE_APP_ENV}
+    profiles:
+      - test-guard
+    restart: "no"
+
   frontend:
     build:
       context: ./frontend
@@ -696,6 +1269,8 @@ services:
           VITE_ANALYTICS_WS_URL=${FRONTEND_VITE_ANALYTICS_WS_URL}
           VITE_ZITADEL_CLIENT_ID=${FRONTEND_VITE_ZITADEL_CLIENT_ID}
           VITE_ZITADEL_PROJECT_ID=${FRONTEND_VITE_ZITADEL_PROJECT_ID}
+          VITE_ZITADEL_AUDIENCE=${FRONTEND_VITE_ZITADEL_AUDIENCE}
+          VITE_ZITADEL_AUDIENCE_SCOPE=${FRONTEND_VITE_ZITADEL_AUDIENCE_SCOPE}
           VITE_TRACE_HEADER=${FRONTEND_VITE_TRACE_HEADER}
           VITE_PWA_NAME=${FRONTEND_VITE_PWA_NAME}
           VITE_PWA_SHORT_NAME=${FRONTEND_VITE_PWA_SHORT_NAME}
@@ -705,8 +1280,12 @@ services:
       NODE_ENV: ${NODE_ENV}
       CAUPPO_ENV: ${CAUPPO_ENV}
     ports:
-      - "127.0.0.1:3000:8080"
+        - "127.0.0.1:${CAUPPO_HOST_PORT_FRONTEND}:8080"
     depends_on:
+      traefik:
+        condition: service_healthy
+      zitadel-login:
+        condition: service_healthy
       user-service:
         condition: service_healthy
     healthcheck:
@@ -734,14 +1313,17 @@ services:
 networks:
   cauppo-edge:
     driver: bridge
-    name: cauppo-edge
+    name: ${CAUPPO_COMPOSE_EDGE_NETWORK}
   cauppo-internal:
     driver: bridge
-    name: cauppo-internal
+    name: ${CAUPPO_COMPOSE_INTERNAL_NETWORK}
 
 volumes:
   postgres-data:
+    name: ${CAUPPO_COMPOSE_POSTGRES_VOLUME}
   redis-data:
+    name: ${CAUPPO_COMPOSE_REDIS_VOLUME}
   rabbitmq-data:
-  zitadel-pat:
+    name: ${CAUPPO_COMPOSE_RABBITMQ_VOLUME}
   minio-data:
+    name: ${CAUPPO_COMPOSE_MINIO_VOLUME}
