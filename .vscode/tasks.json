@@ -1,0 +1,66 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "compose:release:development",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "--env-file", "envs/.env.development", "down"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "compose:up:isolated-test",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "--env-file", "envs/.env.test", "up", "-d", "--wait", "--wait-timeout", "60"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "compose:postgres:isolated-test",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "--env-file", "envs/.env.test", "up", "-d", "postgres"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "compose:down:isolated-test",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "--env-file", "envs/.env.test", "down"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "compose:ps:isolated-test",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "--env-file", "envs/.env.test", "ps"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "compose:logs:isolated-test",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "--env-file", "envs/.env.test", "logs", "-f"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}
