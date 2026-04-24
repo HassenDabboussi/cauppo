@@ -1305,7 +1305,7 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`app.cauppo.localhost`)"
       - "traefik.http.routers.frontend.entrypoints=web"
-      - "traefik.http.routers.frontend.middlewares=secure-headers@file"
+      - "traefik.http.routers.frontend.middlewares=frontend-secure-headers@file"
       - "traefik.http.services.frontend.loadbalancer.server.port=8080"
     networks:
       - cauppo-edge

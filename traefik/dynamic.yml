@@ -23,6 +23,17 @@ http:
         customResponseHeaders:
           X-Powered-By: ""
 
+    frontend-secure-headers:
+      headers:
+        contentTypeNosniff: true
+        browserXssFilter: true
+        frameDeny: true
+        contentSecurityPolicy: "default-src 'self'; connect-src 'self' http://auth.cauppo.localhost ws: wss:; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+        customResponseHeaders:
+          X-Powered-By: ""
+
     # zitadel-login (Next.js) manages its own security headers and requires
     # inline scripts with dynamic nonces. Strip the global secure-headers CSP
     # for the /ui/v2/login path so the browser does not block its inline scripts.
