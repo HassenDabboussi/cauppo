@@ -1,66 +1,392 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "compose:release:development",
-      "type": "shell",
-      "command": "docker",
-      "args": ["compose", "--env-file", "envs/.env.development", "down"],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "compose:up:isolated-test",
-      "type": "shell",
-      "command": "docker",
-      "args": ["compose", "--env-file", "envs/.env.test", "up", "-d", "--wait", "--wait-timeout", "60"],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "compose:postgres:isolated-test",
-      "type": "shell",
-      "command": "docker",
-      "args": ["compose", "--env-file", "envs/.env.test", "up", "-d", "postgres"],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "compose:down:isolated-test",
-      "type": "shell",
-      "command": "docker",
-      "args": ["compose", "--env-file", "envs/.env.test", "down"],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "compose:ps:isolated-test",
-      "type": "shell",
-      "command": "docker",
-      "args": ["compose", "--env-file", "envs/.env.test", "ps"],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "compose:logs:isolated-test",
-      "type": "shell",
-      "command": "docker",
-      "args": ["compose", "--env-file", "envs/.env.test", "logs", "-f"],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "problemMatcher": []
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "compose:release:development",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"down"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "compose:up:isolated-test",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.test",
+				"up",
+				"-d",
+				"--wait",
+				"--wait-timeout",
+				"60"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "compose:postgres:isolated-test",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.test",
+				"up",
+				"-d",
+				"postgres"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "compose:down:isolated-test",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.test",
+				"down"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "compose:ps:isolated-test",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.test",
+				"ps"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "compose:logs:isolated-test",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.test",
+				"logs",
+				"-f"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "compose:up:development",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"up",
+				"-d",
+				"--build",
+				"--wait",
+				"--wait-timeout",
+				"60"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:ps:development",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"ps"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:ps:development:recheck",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"ps"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:ps-a:development",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"ps",
+				"-a"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:up:development:resume",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"up",
+				"-d",
+				"--build",
+				"--wait",
+				"--wait-timeout",
+				"60"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:ps-a:development:final-check",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"ps",
+				"-a"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:up:development:third-pass",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"up",
+				"-d",
+				"--build"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:ps-a:development:ready-check",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"ps",
+				"-a"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:up:development:final-pass",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"up",
+				"-d",
+				"--build"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:ps-a:development:user-facing-check",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"ps",
+				"-a"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:logs:development:user-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"logs",
+				"user-service-db-init",
+				"--tail",
+				"80"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:logs:development:feedback-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"logs",
+				"feedback-service-db-init",
+				"--tail",
+				"80"
+			],
+			"group": "build"
+		},
+		{
+			"label": "docker:inspect:user-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"inspect",
+				"cauppo-development-user-service-db-init-1",
+				"--format",
+				"{{json .State}}"
+			],
+			"group": "build"
+		},
+		{
+			"label": "docker:inspect:feedback-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"inspect",
+				"cauppo-development-feedback-service-db-init-1",
+				"--format",
+				"{{json .State}}"
+			],
+			"group": "build"
+		},
+		{
+			"label": "docker:inspect-cmd:user-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"inspect",
+				"cauppo-development-user-service-db-init-1",
+				"--format",
+				"{{json .Config.Cmd}}"
+			],
+			"group": "build"
+		},
+		{
+			"label": "docker:inspect-cmd:feedback-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"inspect",
+				"cauppo-development-feedback-service-db-init-1",
+				"--format",
+				"{{json .Config.Cmd}}"
+			],
+			"group": "build"
+		},
+		{
+			"label": "docker:inspect-entry:user-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"inspect",
+				"cauppo-development-user-service-db-init-1",
+				"--format",
+				"ENTRY={{json .Config.Entrypoint}} CMD={{json .Path}} ARGS={{json .Args}}"
+			],
+			"group": "build"
+		},
+		{
+			"label": "docker:inspect-entry:feedback-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"inspect",
+				"cauppo-development-feedback-service-db-init-1",
+				"--format",
+				"ENTRY={{json .Config.Entrypoint}} CMD={{json .Path}} ARGS={{json .Args}}"
+			],
+			"group": "build"
+		},
+		{
+			"label": "docker:exec-ps:user-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"exec",
+				"cauppo-development-user-service-db-init-1",
+				"ps",
+				"-ef"
+			],
+			"group": "build"
+		},
+		{
+			"label": "docker:exec-ps:feedback-service-db-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"exec",
+				"cauppo-development-feedback-service-db-init-1",
+				"ps",
+				"-ef"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:ps-a:development:post-feedback-init",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"ps",
+				"-a"
+			],
+			"group": "build"
+		},
+		{
+			"label": "compose:ps:development:ready-now",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"ps"
+			],
+			"group": "build"
+		}
+	]
 }

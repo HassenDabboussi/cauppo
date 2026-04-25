@@ -112,7 +112,6 @@ services:
       # secure-headers is NOT a global middleware — it must be applied per-router.
       # Entrypoint middlewares run LAST on responses (outermost wrapper), so a global
       # secure-headers would re-apply CSP AFTER any router-level header clearing.
-      # zitadel-login uses zitadel-login-headers@file instead; all others use secure-headers@file.
       - --entrypoints.web.http.middlewares=compress@file,rate-limit@file
       - --log.level=INFO
     volumes:
@@ -135,9 +134,6 @@ services:
           memory: 64m
     networks:
       cauppo-edge: {}
-      # Alias so zitadel-login can reach Traefik by the external domain name.
-      # This makes Host: auth.cauppo.localhost natively correct without needing
-      # CUSTOM_REQUEST_HEADERS (which Node.js http2 silently drops).
       cauppo-internal:
         aliases:
           - auth.cauppo.localhost
@@ -157,174 +153,6 @@ services:
           echo 'waiting for postgres to accept SQL connections for zitadel bootstrap'
           sleep 1
         done
-    networks:
-      - cauppo-internal
-    restart: "no"
-
-  zitadel-development-state-guard:
-    image: postgres:18.3-alpine
-    depends_on:
-      zitadel-db-ready:
-        condition: service_completed_successfully
-    environment:
-      PGPASSWORD: postgres
-      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
-      CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE: ${CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE:-preserve-only}
-      ZITADEL_DATABASE_POSTGRES_DATABASE: ${ZITADEL_DATABASE_POSTGRES_DATABASE}
-      USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
-      IAM_LOGIN_CLIENT: ${IAM_LOGIN_CLIENT}
-    entrypoint:
-      - /bin/sh
-      - -ec
-      - |
-        if [ "$${CAUPPO_ENV_PROVENANCE}" != "development" ]; then
-          echo "zitadel-development-state-guard: skipping non-development environment $${CAUPPO_ENV_PROVENANCE}"
-          exit 0
-        fi
-
-        expected_pat_name="$(basename "$${IAM_LOGIN_CLIENT}")"
-        runtime_pat_name="$(basename "$${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}")"
-
-        if [ "$${expected_pat_name}" != "$${runtime_pat_name}" ]; then
-          echo "zitadel-development-state-guard: IAM_LOGIN_CLIENT basename $${expected_pat_name} does not match runtime PAT $${runtime_pat_name}" >&2
-          exit 1
-        fi
-
-        db_exists="$(psql "postgresql://postgres:postgres@postgres:5432/postgres?sslmode=disable" -Atc "select case when exists (select 1 from pg_database where datname = '$${ZITADEL_DATABASE_POSTGRES_DATABASE}') then 'yes' else 'no' end")"
-        db_has_state="no"
-
-        if [ "$${db_exists}" = "yes" ]; then
-          db_has_state="$(psql "postgresql://postgres:postgres@postgres:5432/$${ZITADEL_DATABASE_POSTGRES_DATABASE}?sslmode=disable" -Atc "select case when exists (select 1 from projections.instances limit 1) then 'yes' else 'no' end" 2>/dev/null || printf 'no')"
-        fi
-
-        pat_exists="no"
-        if [ -s "$${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}" ]; then
-          pat_exists="yes"
-        fi
-
-        case "$${CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE}" in
-          preserve-only)
-            if [ "$${db_has_state}" = "yes" ] && [ "$${pat_exists}" = "yes" ]; then
-              echo "zitadel-development-state-guard: preserved development Zitadel DB state and IAM_LOGIN_CLIENT artifact detected"
-              exit 0
-            fi
-
-            if [ "$${db_has_state}" = "no" ] && [ "$${pat_exists}" = "no" ]; then
-              echo "zitadel-development-state-guard: refusing implicit development reinit because both the Zitadel DB state and IAM_LOGIN_CLIENT artifact are absent; recover the matched pair or set CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE=allow-empty-init for an intentional rebuild" >&2
-              exit 1
-            fi
-
-            echo "zitadel-development-state-guard: refusing development startup because the Zitadel DB state and IAM_LOGIN_CLIENT artifact no longer match; recover the matched development pair instead of allowing start-from-init to present a fresh state behind the same URL" >&2
-            exit 1
-            ;;
-          allow-empty-init)
-            if [ "$${db_has_state}" = "yes" ] && [ "$${pat_exists}" = "yes" ]; then
-              echo "zitadel-development-state-guard: preserved development Zitadel DB state and IAM_LOGIN_CLIENT artifact detected"
-              exit 0
-            fi
-
-            if [ "$${db_has_state}" = "no" ] && [ "$${pat_exists}" = "no" ]; then
-              echo "zitadel-development-state-guard: operator approved intentional empty-state development init for this run"
-              exit 0
-            fi
-
-            echo "zitadel-development-state-guard: refusing development startup because the Zitadel DB state and IAM_LOGIN_CLIENT artifact are inconsistent; intentional rebuild is allowed only when both are absent together" >&2
-            exit 1
-            ;;
-          *)
-            echo "zitadel-development-state-guard: unsupported CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE=$${CAUPPO_DEVELOPMENT_ZITADEL_STATE_MODE}" >&2
-            exit 1
-            ;;
-        esac
-    volumes:
-      - type: bind
-        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
-        target: /var/run/cauppo-auth
-        read_only: true
-    networks:
-      - cauppo-internal
-    restart: "no"
-
-  zitadel-isolated-test-state-guard:
-    image: postgres:18.3-alpine
-    depends_on:
-      zitadel-db-ready:
-        condition: service_completed_successfully
-    environment:
-      PGPASSWORD: postgres
-      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
-      CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE: ${CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE:-preserve-only}
-      ZITADEL_DATABASE_POSTGRES_DATABASE: ${ZITADEL_DATABASE_POSTGRES_DATABASE}
-      USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
-      IAM_LOGIN_CLIENT: ${IAM_LOGIN_CLIENT}
-    entrypoint:
-      - /bin/sh
-      - -ec
-      - |
-        if [ "$${CAUPPO_ENV_PROVENANCE}" != "isolated-test" ]; then
-          echo "zitadel-isolated-test-state-guard: skipping non-isolated-test environment $${CAUPPO_ENV_PROVENANCE}"
-          exit 0
-        fi
-
-        expected_pat_name="$(basename "$${IAM_LOGIN_CLIENT}")"
-        runtime_pat_name="$(basename "$${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}")"
-
-        if [ "$${expected_pat_name}" != "$${runtime_pat_name}" ]; then
-          echo "zitadel-isolated-test-state-guard: IAM_LOGIN_CLIENT basename $${expected_pat_name} does not match runtime PAT $${runtime_pat_name}" >&2
-          exit 1
-        fi
-
-        db_exists="$(psql "postgresql://postgres:postgres@postgres:5432/postgres?sslmode=disable" -Atc "select case when exists (select 1 from pg_database where datname = '$${ZITADEL_DATABASE_POSTGRES_DATABASE}') then 'yes' else 'no' end")"
-        db_has_state="no"
-
-        if [ "$${db_exists}" = "yes" ]; then
-          db_has_state="$(psql "postgresql://postgres:postgres@postgres:5432/$${ZITADEL_DATABASE_POSTGRES_DATABASE}?sslmode=disable" -Atc "select case when exists (select 1 from projections.instances limit 1) then 'yes' else 'no' end" 2>/dev/null || printf 'no')"
-        fi
-
-        pat_exists="no"
-        if [ -s "$${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}" ]; then
-          pat_exists="yes"
-        fi
-
-        case "$${CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE}" in
-          preserve-only)
-            if [ "$${db_has_state}" = "yes" ] && [ "$${pat_exists}" = "yes" ]; then
-              echo "zitadel-isolated-test-state-guard: preserved isolated-test Zitadel DB state and IAM_LOGIN_CLIENT artifact detected"
-              exit 0
-            fi
-
-            if [ "$${db_has_state}" = "no" ] && [ "$${pat_exists}" = "no" ]; then
-              echo "zitadel-isolated-test-state-guard: refusing implicit isolated-test reinit because both the Zitadel DB state and IAM_LOGIN_CLIENT artifact are absent; recover the matched pair or set CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE=allow-empty-init for an intentional isolated-test rebuild" >&2
-              exit 1
-            fi
-
-            echo "zitadel-isolated-test-state-guard: refusing isolated-test startup because the Zitadel DB state and IAM_LOGIN_CLIENT artifact no longer match; recover the matched isolated-test pair instead of allowing start-from-init to present a fresh state behind the shared auth URL" >&2
-            exit 1
-            ;;
-          allow-empty-init)
-            if [ "$${db_has_state}" = "yes" ] && [ "$${pat_exists}" = "yes" ]; then
-              echo "zitadel-isolated-test-state-guard: preserved isolated-test Zitadel DB state and IAM_LOGIN_CLIENT artifact detected"
-              exit 0
-            fi
-
-            if [ "$${db_has_state}" = "no" ] && [ "$${pat_exists}" = "no" ]; then
-              echo "zitadel-isolated-test-state-guard: operator approved intentional empty-state isolated-test init for this run"
-              exit 0
-            fi
-
-            echo "zitadel-isolated-test-state-guard: refusing isolated-test startup because the Zitadel DB state and IAM_LOGIN_CLIENT artifact are inconsistent; intentional rebuild is allowed only when both are absent together" >&2
-            exit 1
-            ;;
-          *)
-            echo "zitadel-isolated-test-state-guard: unsupported CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE=$${CAUPPO_ISOLATED_TEST_ZITADEL_STATE_MODE}" >&2
-            exit 1
-            ;;
-        esac
-    volumes:
-      - type: bind
-        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
-        target: /var/run/cauppo-auth
-        read_only: true
     networks:
       - cauppo-internal
     restart: "no"
@@ -356,28 +184,13 @@ services:
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Admin1234!
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
-      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: zitadel-login-client
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: ZITADEL-login-client
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2519-04-01T08:45:00Z"
       # Login v2 feature flags
       ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: "${FRONTEND_VITE_AUTH_BASE_URL}/ui/v2/login"
-      ZITADEL_OIDC_DEFAULTLOGINURLV2: "${FRONTEND_VITE_AUTH_BASE_URL}/ui/v2/login/login?authRequest="
-      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: "${FRONTEND_VITE_AUTH_BASE_URL}/ui/v2/login/logout?post_logout_redirect="
       ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: "true"
-    volumes:
-      - type: bind
-        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
-        target: /var/run/cauppo-auth
     ports:
       - "127.0.0.1:${CAUPPO_HOST_PORT_ZITADEL}:8080"
     depends_on:
       zitadel-db-ready:
-        condition: service_completed_successfully
-      zitadel-development-state-guard:
-        condition: service_completed_successfully
-      zitadel-isolated-test-state-guard:
         condition: service_completed_successfully
     healthcheck:
       test:
@@ -391,7 +204,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${CAUPPO_COMPOSE_INTERNAL_NETWORK}"
-      - "traefik.http.routers.zitadel.rule=Host(`auth.cauppo.localhost`) && !PathPrefix(`/ui/v2/login`)"
+      - "traefik.http.routers.zitadel.rule=Host(`auth.cauppo.localhost`)"
       - "traefik.http.routers.zitadel.entrypoints=web"
       - "traefik.http.routers.zitadel.priority=10"
       - "traefik.http.routers.zitadel.middlewares=secure-headers@file"
@@ -408,67 +221,60 @@ services:
   zitadel-login:
     image: ghcr.io/zitadel/zitadel-login:v4.12.3
     restart: unless-stopped
+    user: "0"
     environment:
-      # Route via Traefik so Host: auth.cauppo.localhost is set natively from the URL.
-      # zitadel-login resolves auth.cauppo.localhost to Traefik (alias on cauppo-internal),
-      # Traefik routes to Zitadel via h2c. No CUSTOM_REQUEST_HEADERS needed.
-      ZITADEL_API_URL: ${FRONTEND_VITE_AUTH_BASE_URL}
+      ZITADEL_API_URL: http://zitadel:8080
       NEXT_PUBLIC_BASE_PATH: /ui/v2/login
-      ZITADEL_SERVICE_USER_TOKEN_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
-      NODE_ENV: production
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /var/run/cauppo-auth/iam-login-client.${CAUPPO_ENV_PROVENANCE}.pat
+      CUSTOM_REQUEST_HEADERS: Host:auth.cauppo.localhost,X-Forwarded-Proto:http
     volumes:
       - type: bind
         source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
         target: /var/run/cauppo-auth
         read_only: true
     depends_on:
-      traefik:
-        condition: service_healthy
       zitadel:
         condition: service_healthy
     healthcheck:
       test:
-        - CMD-SHELL
-        - wget -qO- http://127.0.0.1:3000/ui/v2/login/healthy || exit 1
+        - CMD
+        - /bin/sh
+        - -c
+        - node /app/healthcheck.mjs http://localhost:3000/ui/v2/login/healthy
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      timeout: 30s
+      retries: 12
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${CAUPPO_COMPOSE_INTERNAL_NETWORK}"
       - "traefik.http.routers.zitadel-login.rule=Host(`auth.cauppo.localhost`) && PathPrefix(`/ui/v2/login`)"
       - "traefik.http.routers.zitadel-login.entrypoints=web"
       - "traefik.http.routers.zitadel-login.priority=20"
-      # Override global entrypoint middlewares: replace secure-headers with zitadel-login-headers
-      # so the Traefik CSP does not block Next.js inline scripts on the login UI.
-      - "traefik.http.routers.zitadel-login.middlewares=compress@file,zitadel-login-headers@file,rate-limit@file"
+      - "traefik.http.routers.zitadel-login.middlewares=zitadel-login-headers@file"
       - "traefik.http.services.zitadel-login.loadbalancer.server.port=3000"
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256m
     networks:
       - cauppo-internal
 
-  # Private runtime helper for Zitadel complement-token callbacks. The runtime
-  # module is owned by user-service; repo-root Compose only hosts the container
-  # that Zitadel calls after the operator wires the environment's preaccesstoken
-  # action. user-service keeps it as a hard readiness dependency so selected-role
-  # claim injection fails closed without changing the public /v1/auth/* contract.
   zitadel-complement-token-target:
-    image: node:22.17.0-alpine3.22
+    image: node:22-alpine
     restart: unless-stopped
-    user: "node"
+    working_dir: /workspace
     command:
       - node
-      - /app/zitadel-complement-token-target.mjs
+      - /workspace/complement-token-target.mjs
     environment:
       PORT: "8091"
-      CAUPPO_SELECTED_ROLE_METADATA_KEY: cauppo.selected_role.v1
     volumes:
-      - ./user-service/src/integrations/zitadel/complement-token-target.mjs:/app/zitadel-complement-token-target.mjs:ro
+      - ./user-service/src/integrations/zitadel/complement-token-target.mjs:/workspace/complement-token-target.mjs:ro
+    depends_on:
+      traefik:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD-SHELL
@@ -481,14 +287,14 @@ services:
       resources:
         limits:
           cpus: "0.25"
-          memory: 64m
+          memory: 128m
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${CAUPPO_COMPOSE_INTERNAL_NETWORK}"
       - "traefik.http.routers.zitadel-complement-token-target.rule=Host(`auth.cauppo.localhost`) && PathPrefix(`/zitadel-complement-token-target`)"
       - "traefik.http.routers.zitadel-complement-token-target.entrypoints=web"
-      - "traefik.http.routers.zitadel-complement-token-target.priority=25"
-      - "traefik.http.routers.zitadel-complement-token-target.middlewares=zitadel-complement-token-target-strip,secure-headers@file"
+      - "traefik.http.routers.zitadel-complement-token-target.priority=15"
+      - "traefik.http.routers.zitadel-complement-token-target.middlewares=secure-headers@file,zitadel-complement-token-target-strip"
       - "traefik.http.middlewares.zitadel-complement-token-target-strip.stripprefix.prefixes=/zitadel-complement-token-target"
       - "traefik.http.services.zitadel-complement-token-target.loadbalancer.server.port=8091"
     networks:
@@ -511,7 +317,6 @@ services:
       RABBITMQ_URL: ${USER_SERVICE_RABBITMQ_URL}
       ZITADEL_API_URL: ${USER_SERVICE_ZITADEL_API_URL}
       ZITADEL_INTERNAL_URL: ${USER_SERVICE_ZITADEL_INTERNAL_URL}
-      ZITADEL_LOGIN_CLIENT_PAT_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
       ZITADEL_ISSUER: ${USER_SERVICE_ZITADEL_ISSUER}
       ZITADEL_ISSUER_URL: ${USER_SERVICE_ZITADEL_ISSUER_URL}
       ZITADEL_JWKS_URL: ${USER_SERVICE_ZITADEL_JWKS_URL}
@@ -556,12 +361,6 @@ services:
         condition: service_healthy
       zitadel:
         condition: service_healthy
-      # Keep the service-owned complement-token target fail-closed for user-service's
-      # existing /v1/auth/* bearer flow.
-      zitadel-complement-token-target:
-        condition: service_healthy
-      user-service-db-init:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
@@ -614,7 +413,6 @@ services:
       RABBITMQ_URL: ${USER_SERVICE_RABBITMQ_URL}
       ZITADEL_API_URL: ${USER_SERVICE_ZITADEL_API_URL}
       ZITADEL_INTERNAL_URL: ${USER_SERVICE_ZITADEL_INTERNAL_URL}
-      ZITADEL_LOGIN_CLIENT_PAT_FILE: ${USER_SERVICE_ZITADEL_LOGIN_CLIENT_PAT_FILE}
       ZITADEL_ISSUER: ${USER_SERVICE_ZITADEL_ISSUER}
       ZITADEL_ISSUER_URL: ${USER_SERVICE_ZITADEL_ISSUER_URL}
       ZITADEL_JWKS_URL: ${USER_SERVICE_ZITADEL_JWKS_URL}
@@ -683,8 +481,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      feedback-service-db-init:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
@@ -983,7 +779,7 @@ services:
       ANALYTICS_READ_REPLICA_URL: ${ANALYTICS_SERVICE_ANALYTICS_READ_REPLICA_URL}
       REDIS_URL: ${ANALYTICS_SERVICE_REDIS_URL}
       RABBITMQ_URL: ${ANALYTICS_SERVICE_RABBITMQ_URL}
-      USER_SERVICE_URL: ${ANALYTICS_SERVICE_USER_SERVICE_INTERNAL_URL}
+      USER_SERVICE_INTERNAL_URL: ${ANALYTICS_SERVICE_USER_SERVICE_INTERNAL_URL}
       ANALYTICS_LIVE_TTL_HOURS: ${ANALYTICS_SERVICE_ANALYTICS_LIVE_TTL_HOURS}
     ports:
         - "127.0.0.1:${CAUPPO_HOST_PORT_ANALYTICS_SERVICE}:8083"
@@ -995,8 +791,6 @@ services:
       redis:
         condition: service_healthy
       rabbitmq:
-        condition: service_healthy
-      user-service:
         condition: service_healthy
     healthcheck:
       test:
@@ -1283,10 +1077,6 @@ services:
         - "127.0.0.1:${CAUPPO_HOST_PORT_FRONTEND}:8080"
     depends_on:
       traefik:
-        condition: service_healthy
-      zitadel-login:
-        condition: service_healthy
-      user-service:
         condition: service_healthy
     healthcheck:
       test:

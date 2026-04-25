@@ -1,0 +1,79 @@
+{
+  "kind": "cauppo-final-model-durability-evidence",
+  "generatedAt": "2026-04-25T09:38:00.497Z",
+  "approvedEnvFiles": {
+    "development": {
+      "relativePath": "envs/.env.development",
+      "provenance": "development",
+      "approved": true
+    },
+    "isolatedTest": {
+      "relativePath": "envs/.env.test",
+      "provenance": "isolated-test",
+      "approved": true
+    }
+  },
+  "isolatedTestProvenance": {
+    "hostRunAndComposeUseSameApprovedEnv": true,
+    "borrowedDevelopmentAuthInputsDetected": false,
+    "normalStopStartCyclePreserved": true,
+    "checkedSurfaces": [
+      "docker compose --env-file envs/.env.test up -d --wait",
+      "docker compose --env-file envs/.env.test down",
+      "host-run frontend and user-service contract suites"
+    ]
+  },
+  "developmentHealth": {
+    "normalStopStartCyclePreserved": true,
+    "borrowedIsolatedTestAuthStateDetected": false,
+    "checkedSurfaces": [
+      "docker compose --env-file envs/.env.development up -d --wait",
+      "frontend login entry",
+      "user-service /health"
+    ]
+  },
+  "restartDurability": {
+    "normalStopStartCycle": {
+      "isolatedTestProvenancePreserved": true,
+      "developmentHealthPreserved": true,
+      "noZitadelStateLossDetected": true,
+      "userServiceActiveRoleAuthorityRecovered": true
+    }
+  },
+  "evidence": {
+    "frontend": {
+      "kind": "cauppo-final-model-durability-evidence-slice",
+      "serviceKey": "frontend",
+      "surfaceKeys": [
+        "docker compose --env-file envs/.env.test up -d --wait",
+        "docker compose --env-file envs/.env.test down",
+        "docker compose --env-file envs/.env.development up -d --wait",
+        "docker compose --env-file envs/.env.development down",
+        "GET /v1/auth/active-role",
+        "app.cauppo.localhost/login",
+        "/role-picker"
+      ],
+      "notes": [
+        "Frontend durability evidence must prove that normal stop/start cycles preserve the approved environment boundary and the final-model login entry surface.",
+        "Isolated-test provenance stays bound to envs/.env.test, and development health must not borrow isolated-test auth state."
+      ]
+    },
+    "userService": {
+      "kind": "cauppo-final-model-durability-evidence-slice",
+      "serviceKey": "userService",
+      "surfaceKeys": [
+        "GET /health",
+        "POST /v1/auth/active-role",
+        "GET /v1/auth/active-role",
+        "POST /v1/auth/active-role/refresh",
+        "DELETE /v1/auth/active-role",
+        "POST /internal/v1/auth/active-role/introspect"
+      ],
+      "notes": [
+        "User-service durability evidence must prove that a normal stop/start cycle preserves the active-role authority boundary without silent fallback or recovered mixed-environment auth state.",
+        "The final-model verification stays fail-closed until restart durability explicitly records no Zitadel-state loss and no cross-environment auth borrowing."
+      ]
+    }
+  },
+  "blockers": []
+}

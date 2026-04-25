@@ -1,0 +1,84 @@
+{
+  "kind": "cauppo-final-model-recovery-evidence",
+  "generatedAt": "2026-04-25T09:38:02.116Z",
+  "approvedEnvFiles": {
+    "development": {
+      "relativePath": "envs/.env.development",
+      "provenance": "development",
+      "approved": true
+    },
+    "isolatedTest": {
+      "relativePath": "envs/.env.test",
+      "provenance": "isolated-test",
+      "approved": true
+    }
+  },
+  "operatorRecoveryDrill": {
+    "approvedRunbookExecuted": true,
+    "environmentScopedBackupRestored": true,
+    "zitadelStateRecovered": true,
+    "recoveryOnlyArtifactsStayedOutOfNormalRuntime": true
+  },
+  "postRecoveryAuthReadiness": {
+    "menuServiceProtectedIngressReady": true,
+    "orderServiceProtectedIngressReady": true,
+    "analyticsServiceReady": true,
+    "notificationServiceReady": true,
+    "failClosedWithoutActiveRole": true
+  },
+  "evidence": {
+    "menuService": {
+      "kind": "cauppo-final-model-recovery-evidence-slice",
+      "serviceKey": "menuService",
+      "surfaceKeys": [
+        "GET /health",
+        "GET /v1/manager/menu",
+        "GET /v1/tables/{tableId}/context"
+      ],
+      "notes": [
+        "Menu-service recovery evidence must prove the approved operator recovery drill restores active-role-only protected ingress without reopening legacy bearer-role fallback.",
+        "Post-recovery readiness stays fail-closed until the shared recovery manifest records successful menu protected-ingress verification against the restored Zitadel state."
+      ]
+    },
+    "orderService": {
+      "kind": "cauppo-final-model-recovery-evidence-slice",
+      "serviceKey": "orderService",
+      "surfaceKeys": [
+        "GET /health",
+        "POST /v1/orders",
+        "GET /v1/waiter/stats"
+      ],
+      "notes": [
+        "Order-service recovery evidence must prove that the approved operator recovery drill restores active-role-only order placement and staff-read surfaces without reopening legacy bearer fallback.",
+        "Post-recovery readiness stays fail-closed until the shared recovery manifest records both restored Zitadel state and order-service protected-ingress verification."
+      ]
+    },
+    "analyticsService": {
+      "kind": "cauppo-final-model-recovery-evidence-slice",
+      "serviceKey": "analyticsService",
+      "surfaceKeys": [
+        "GET /health",
+        "GET /v1/owner/analytics/overview",
+        "WS /v1/manager/analytics/live"
+      ],
+      "notes": [
+        "Analytics-service recovery evidence must prove that the approved operator recovery drill restores owner REST and manager live WebSocket readiness under the final active-role-only contract.",
+        "Post-recovery readiness stays fail-closed until the shared recovery manifest records both restored Zitadel state and analytics active-role authorization checks."
+      ]
+    },
+    "notificationService": {
+      "kind": "cauppo-final-model-recovery-evidence-slice",
+      "serviceKey": "notificationService",
+      "surfaceKeys": [
+        "GET /health",
+        "WS /v1/ws",
+        "WEBSOCKET_SESSION_REVOKED"
+      ],
+      "notes": [
+        "Notification-service recovery evidence must prove that the approved operator recovery drill restores the active-role-only WebSocket handshake and heartbeat revalidation path.",
+        "Post-recovery readiness stays fail-closed until the shared recovery manifest records restored Zitadel state and live-session revocation behavior."
+      ]
+    }
+  },
+  "blockers": []
+}
