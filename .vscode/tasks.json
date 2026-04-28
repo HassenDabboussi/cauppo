@@ -387,6 +387,39 @@
 				"ps"
 			],
 			"group": "build"
+		},
+		{
+			"label": "user-service:sprint22-task3.3:red-check",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-Location; Set-Location \"c:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\user-service\"; Get-Location; bun test tests/contract/auth.login.final-boundary.contract.test.ts tests/contract/auth.active-role.final-boundary.contract.test.ts --timeout 10000; $testExit = $LASTEXITCODE; bunx tsc --noEmit; $tscExit = $LASTEXITCODE; Write-Output (\"TEST_EXIT=\" + $testExit); Write-Output (\"TSC_EXIT=\" + $tscExit); if ($testExit -ne 0) { exit $testExit }; if ($tscExit -ne 0) { exit $tscExit }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "user-service:sprint22-task3.3:red-check-rerun",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-Location; Set-Location \"c:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\user-service\"; Get-Location; bun test tests/contract/auth.login.final-boundary.contract.test.ts tests/contract/auth.active-role.final-boundary.contract.test.ts --timeout 10000; $testExit = $LASTEXITCODE; bunx tsc --noEmit; $tscExit = $LASTEXITCODE; if ($testExit -ne 0) { exit $testExit }; if ($tscExit -ne 0) { exit $tscExit }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "user-service:sprint22-task3.3:tsc-check",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-Location; Set-Location \"c:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\user-service\"; Get-Location; bunx tsc --noEmit"
+			],
+			"isBackground": false
 		}
 	]
 }

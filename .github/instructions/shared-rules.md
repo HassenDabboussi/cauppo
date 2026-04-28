@@ -39,6 +39,7 @@ These operations are **BANNED** across all agents. They cause indefinite hangs o
 4. **NEVER run open-ended search operations** across the entire workspace. Search within specific service directories or `project_management/` only.
 5. **Set explicit timeouts on all terminal commands.** Default hard timeout: **120 seconds** for review/test agents, **60 seconds** for implementation agents. If a command doesn't complete within the timeout, **KILL it** and report BLOCKED.
 6. **If any terminal command produces no output for 60 seconds, KILL it immediately** and report BLOCKED.
+7. **NEVER run volume-destructive Docker commands** such as `docker compose down -v`, `docker compose down --volumes`, `docker compose rm -v`, or `docker volume rm` unless the Orchestrator or user has explicitly authorized deleting volumes for the current task. Preserving existing runtime state is the default.
 
 ---
 

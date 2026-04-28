@@ -145,6 +145,8 @@ services:
         condition: service_healthy
     environment:
       PGPASSWORD: postgres
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      ZITADEL_DATABASE_POSTGRES_DATABASE: ${ZITADEL_DATABASE_POSTGRES_DATABASE}
     entrypoint:
       - /bin/sh
       - -ec
@@ -153,8 +155,33 @@ services:
           echo 'waiting for postgres to accept SQL connections for zitadel bootstrap'
           sleep 1
         done
+
+        table_count="$$(psql "postgresql://postgres:postgres@postgres:5432/$${ZITADEL_DATABASE_POSTGRES_DATABASE}?sslmode=disable" -Atc "select count(*) from information_schema.tables where table_schema not in ('pg_catalog', 'information_schema')")"
+        pat_file="/var/run/cauppo-auth/iam-login-client.$${CAUPPO_ENV_PROVENANCE}.pat"
+
+        if [ "$${table_count:-0}" = "0" ]; then
+          if [ -e "$${pat_file}" ]; then
+            rm -rf "$${pat_file}"
+            echo "removed stale Zitadel login-client PAT before fresh $${CAUPPO_ENV_PROVENANCE} init"
+          fi
+        fi
+
+        touch /tmp/cauppo-init-ready
+        tail -f /dev/null
     networks:
       - cauppo-internal
+    volumes:
+      - type: bind
+        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
+        target: /var/run/cauppo-auth
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cauppo-init-ready
+      interval: 5s
+      timeout: 2s
+      retries: 120
+      start_period: 5s
     restart: "no"
 
   zitadel:
@@ -184,14 +211,22 @@ services:
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Admin1234!
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /var/run/cauppo-auth/iam-login-client.${CAUPPO_ENV_PROVENANCE}.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Login Client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
       # Login v2 feature flags
       ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "true"
       ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: "true"
+    volumes:
+      - type: bind
+        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
+        target: /var/run/cauppo-auth
     ports:
       - "127.0.0.1:${CAUPPO_HOST_PORT_ZITADEL}:8080"
     depends_on:
       zitadel-db-ready:
-        condition: service_completed_successfully
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -261,45 +296,6 @@ services:
     networks:
       - cauppo-internal
 
-  zitadel-complement-token-target:
-    image: node:22-alpine
-    restart: unless-stopped
-    working_dir: /workspace
-    command:
-      - node
-      - /workspace/complement-token-target.mjs
-    environment:
-      PORT: "8091"
-    volumes:
-      - ./user-service/src/integrations/zitadel/complement-token-target.mjs:/workspace/complement-token-target.mjs:ro
-    depends_on:
-      traefik:
-        condition: service_healthy
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - wget -qO- http://127.0.0.1:8091/health || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 128m
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=${CAUPPO_COMPOSE_INTERNAL_NETWORK}"
-      - "traefik.http.routers.zitadel-complement-token-target.rule=Host(`auth.cauppo.localhost`) && PathPrefix(`/zitadel-complement-token-target`)"
-      - "traefik.http.routers.zitadel-complement-token-target.entrypoints=web"
-      - "traefik.http.routers.zitadel-complement-token-target.priority=15"
-      - "traefik.http.routers.zitadel-complement-token-target.middlewares=secure-headers@file,zitadel-complement-token-target-strip"
-      - "traefik.http.middlewares.zitadel-complement-token-target-strip.stripprefix.prefixes=/zitadel-complement-token-target"
-      - "traefik.http.services.zitadel-complement-token-target.loadbalancer.server.port=8091"
-    networks:
-      - cauppo-internal
-
   user-service:
     build:
       context: ./user-service
@@ -311,12 +307,14 @@ services:
       CAUPPO_ENV: ${CAUPPO_ENV}
       CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
       CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
+      CAUPPO_TEST_EXECUTION_MODE: compose-backed
       CAUPPO_TRACE_HEADER: ${CAUPPO_TRACE_HEADER}
       DATABASE_URL: ${USER_SERVICE_DATABASE_URL}
       REDIS_URL: ${USER_SERVICE_REDIS_URL}
       RABBITMQ_URL: ${USER_SERVICE_RABBITMQ_URL}
       ZITADEL_API_URL: ${USER_SERVICE_ZITADEL_API_URL}
       ZITADEL_INTERNAL_URL: ${USER_SERVICE_ZITADEL_INTERNAL_URL}
+      ZITADEL_LOGIN_CLIENT_PAT_FILE: /var/run/cauppo-auth/iam-login-client.${CAUPPO_ENV_PROVENANCE}.pat
       ZITADEL_ISSUER: ${USER_SERVICE_ZITADEL_ISSUER}
       ZITADEL_ISSUER_URL: ${USER_SERVICE_ZITADEL_ISSUER_URL}
       ZITADEL_JWKS_URL: ${USER_SERVICE_ZITADEL_JWKS_URL}
@@ -357,6 +355,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      user-service-db-init:
+        condition: service_healthy
       traefik:
         condition: service_healthy
       zitadel:
@@ -370,6 +370,8 @@ services:
       minio-init:
         condition: service_healthy
       mailpit:
+        condition: service_healthy
+      zitadel-mailpit-smtp-init:
         condition: service_healthy
     healthcheck:
       test:
@@ -443,15 +445,25 @@ services:
     entrypoint: >
       /bin/sh -ec "
         mkdir -p /workspace/user-service;
-        cp -R /source/. /workspace/user-service;
+          tar -C /source -cf - package.json bun.lock bunfig.toml tsconfig.json drizzle.config.ts src migrations | tar -C /workspace/user-service -xf -;
         bun install;
         bun run db:migrate;
         echo 'user-service schema initialized';
+        touch /tmp/cauppo-init-ready;
+        tail -f /dev/null;
       "
     volumes:
       - ./user-service:/source:ro
     networks:
       - cauppo-internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cauppo-init-ready
+      interval: 5s
+      timeout: 2s
+      retries: 120
+      start_period: 5s
     restart: "no"
 
   feedback-service:
@@ -480,6 +492,8 @@ services:
         - "127.0.0.1:${CAUPPO_HOST_PORT_FEEDBACK_SERVICE}:3002"
     depends_on:
       postgres:
+        condition: service_healthy
+      feedback-service-db-init:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -522,16 +536,25 @@ services:
     entrypoint: >
       /bin/sh -c "
         mkdir -p /workspace/feedback-service;
-        cp -R /source/. /workspace/feedback-service;
+          tar -C /source -cf - package.json bun.lock bunfig.toml tsconfig.json drizzle.config.ts src drizzle | tar -C /workspace/feedback-service -xf -;
         bun install;
         bunx drizzle-kit push --force;
         echo 'feedback-service schema initialized';
-        exit 0;
+        touch /tmp/cauppo-init-ready;
+        tail -f /dev/null;
       "
     volumes:
       - ./feedback-service:/source:ro
     networks:
       - cauppo-internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cauppo-init-ready
+      interval: 5s
+      timeout: 2s
+      retries: 120
+      start_period: 5s
     restart: "no"
 
   menu-service:
@@ -566,7 +589,7 @@ services:
       postgres:
         condition: service_healthy
       menu-service-db-init:
-        condition: service_completed_successfully
+        condition: service_healthy
       redis:
         condition: service_healthy
       rabbitmq:
@@ -635,11 +658,21 @@ services:
           exit 1;
         fi;
         echo 'menu-service schema initialized';
+        touch /tmp/cauppo-init-ready;
+        tail -f /dev/null;
       "
     volumes:
       - ./menu-service/migrations:/migrations:ro
     networks:
       - cauppo-internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cauppo-init-ready
+      interval: 5s
+      timeout: 2s
+      retries: 120
+      start_period: 5s
     restart: "no"
 
   order-service:
@@ -671,7 +704,7 @@ services:
       postgres:
         condition: service_healthy
       order-service-db-init:
-        condition: service_completed_successfully
+        condition: service_healthy
       redis:
         condition: service_healthy
       rabbitmq:
@@ -738,11 +771,21 @@ services:
           exit 1;
         fi;
         echo 'order-service schema initialized';
+        touch /tmp/cauppo-init-ready;
+        tail -f /dev/null;
       "
     volumes:
       - ./order-service/migrations:/migrations:ro
     networks:
       - cauppo-internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cauppo-init-ready
+      interval: 5s
+      timeout: 2s
+      retries: 120
+      start_period: 5s
     restart: "no"
 
   analytics-service:
@@ -787,7 +830,7 @@ services:
       postgres:
         condition: service_healthy
       analytics-service-db-init:
-        condition: service_completed_successfully
+        condition: service_healthy
       redis:
         condition: service_healthy
       rabbitmq:
@@ -860,11 +903,21 @@ services:
           exit 1;
         fi;
         echo 'analytics-service schema initialized';
+        touch /tmp/cauppo-init-ready;
+        tail -f /dev/null;
       "
     volumes:
       - ./analytics-service/migrations:/migrations:ro
     networks:
       - cauppo-internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cauppo-init-ready
+      interval: 5s
+      timeout: 2s
+      retries: 120
+      start_period: 5s
     restart: "no"
 
   notification-service:
@@ -1016,6 +1069,72 @@ services:
     networks:
       - cauppo-edge
       - cauppo-internal
+
+  zitadel-mailpit-smtp-init:
+    image: node:22-alpine
+    depends_on:
+      traefik:
+        condition: service_healthy
+      zitadel:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    environment:
+      CAUPPO_ENV_PROVENANCE: ${CAUPPO_ENV_PROVENANCE}
+      CAUPPO_TEST_ENV_APPROVED: ${CAUPPO_TEST_ENV_APPROVED}
+      ZITADEL_BASE_URL: ${USER_SERVICE_ZITADEL_API_URL}
+      ZITADEL_REQUEST_HOST: auth.cauppo.localhost
+      ZITADEL_REQUEST_PROTO: http
+      SMTP_PROVIDER_DESCRIPTION: cauppo-local-mailpit
+      SMTP_HOST: mailpit:1025
+      SMTP_TLS: "false"
+      SMTP_SENDER_ADDRESS: ${USER_SERVICE_RESEND_FROM_EMAIL}
+      SMTP_SENDER_NAME: Cauppo
+      SMTP_REPLY_TO_ADDRESS: ${USER_SERVICE_RESEND_FROM_EMAIL}
+      ZITADEL_LOGIN_CLIENT_ACCESS_TOKEN_FILE: /var/run/cauppo-auth/iam-login-client.${CAUPPO_ENV_PROVENANCE}.pat
+      ZITADEL_ADMIN_LOGIN_NAME: admin@cauppo.auth.cauppo.localhost
+      ZITADEL_ADMIN_PASSWORD: Admin1234!
+      ZITADEL_MANAGEMENT_CLIENT_ID: ${USER_SERVICE_ZITADEL_MANAGEMENT_CLIENT_ID}
+      ZITADEL_MANAGEMENT_CLIENT_SECRET: ${USER_SERVICE_ZITADEL_MANAGEMENT_CLIENT_SECRET}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        case "$${CAUPPO_ENV_PROVENANCE}" in
+          isolated-test|development)
+            node /workspace/scripts/setup-mailpit-smtp.mjs
+            ;;
+          *)
+            echo 'Skipping Zitadel Mailpit SMTP bootstrap outside isolated-test/development.'
+            ;;
+        esac
+        touch /tmp/cauppo-init-ready
+        tail -f /dev/null
+    volumes:
+      - type: bind
+        source: ./scripts
+        target: /workspace/scripts
+        read_only: true
+      - type: bind
+        source: ./envs/.local/${CAUPPO_ENV_PROVENANCE}
+        target: /var/run/cauppo-auth
+        read_only: true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128m
+    networks:
+      - cauppo-internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cauppo-init-ready
+      interval: 5s
+      timeout: 2s
+      retries: 120
+      start_period: 5s
+    restart: "no"
 
   test-env-guard:
     image: alpine:3.21

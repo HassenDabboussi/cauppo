@@ -73,8 +73,8 @@ Before writing any test, you MUST read:
 1. The specific `sprint_x_task_y.md` — for subtask description, target files, **Task Mode**, service assignment.
 2. `[service-name]/ARCHITECTURE.md` or `frontend/ARCHITECTURE.md` — for component structure, API client patterns, testing strategy.
 3. `/project_management/SYSTEM_ARCHITECTURE.md` — for cross-service contracts (needed for integration/CDC testing).
-4. `DESIGN_SPEC_task_X.md` — for visual specifications and component behavior (frontend tasks).
-5. `UI_CANVAS_sprint_X.md` — for layout and interaction patterns (frontend tasks).
+4. The Designer implementation report and referenced `docs/` UI canvases — for expected visual/interaction behavior on frontend UI tasks.
+5. Optional sprint UI documentation (`UI_CANVAS_sprint_X.md` or `DESIGN_SPEC_task_X.md`) only when the user or Orchestrator explicitly requested those artifacts.
 6. `.github/skills/vercel-react-best-practices/AGENTS.md` — for React testing patterns.
 7. **`docs/api-contracts.md`** — **(section matching your service only)** for canonical response schemas that inform mock data shapes (MSW, vi.mock). Test assertions SHOULD validate against these schemas.
 8. **`docs/data-dictionary.md`** — for enum values as test fixtures (all valid values + boundary values). Status transitions provide test scenarios for state-dependent UI.
@@ -83,7 +83,7 @@ Before writing any test, you MUST read:
 
 ### Critical Thinking Rules for Docs
 
-- If a canvas screen spec **lacks an error state or empty state** that `docs/api-contracts.md` error responses imply, **add test coverage for it anyway** and flag the gap in the DESIGN_SPEC as a missing state.
+- If a docs canvas or implementation report **lacks an error state or empty state** that `docs/api-contracts.md` error responses imply, **add test coverage for it anyway** and flag the gap as a docs/UX discrepancy for Designer or Reviewer.
 - Use `docs/data-dictionary.md` enum values as comprehensive test fixtures — test all valid values, not just one or two happy-path examples.
 
 </pre_read>
@@ -138,7 +138,7 @@ Before writing any test, you MUST read:
 
 ### **NO-TEST Mode: Smoke Verification Only**
 
-Called ONCE after Coder-TS finishes all subtasks.
+Called ONCE after the assigned implementation agent finishes all subtasks.
 
 **Your job:**
 - `npx tsc --noEmit` succeeds (type checking)
@@ -151,7 +151,7 @@ Called ONCE after Coder-TS finishes all subtasks.
 
 ### **IMPLEMENT-FIRST Mode: Post-Implementation Testing**
 
-After Coder-TS implements, you write tests.
+After Designer implements visual UI and Coder-TS completes any non-visual TypeScript support, you write tests.
 
 **Per subtask:**
 1. Read the subtask row and the implementation.
@@ -278,7 +278,7 @@ For sprints that DO include an integration task:
 
 ### Visual Regression (Frontend Only)
 
-If the task or DESIGN_SPEC mentions visual fidelity:
+If the task, Designer report, or referenced `docs/` UI canvas mentions visual fidelity:
 1. Use Playwright's `expect(page).toHaveScreenshot()`.
 2. Store baseline screenshots in `tests/screenshots/`.
 3. Report visual differences with before/after paths.
