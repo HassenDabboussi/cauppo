@@ -36,6 +36,27 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "compose:up:isolated-test:sprint23-manager-proof",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.test",
+				"--profile",
+				"sprint23-manager-proof",
+				"up",
+				"-d",
+				"--wait",
+				"--wait-timeout",
+				"60"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
 			"label": "compose:postgres:isolated-test",
 			"type": "shell",
 			"command": "docker",
@@ -75,6 +96,23 @@
 				"compose",
 				"--env-file",
 				"envs/.env.test",
+				"ps"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "compose:ps:isolated-test:sprint23-manager-proof",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.test",
+				"--profile",
+				"sprint23-manager-proof",
 				"ps"
 			],
 			"options": {
@@ -420,6 +458,24 @@
 				"Get-Location; Set-Location \"c:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\user-service\"; Get-Location; bunx tsc --noEmit"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "compose:up:development",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--env-file",
+				"envs/.env.development",
+				"up",
+				"-d",
+				"--wait",
+				"--wait-timeout",
+				"60"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }

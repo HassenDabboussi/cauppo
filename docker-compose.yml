@@ -389,7 +389,7 @@ services:
     labels:
       - "traefik.enable=true"
       # Public /v1/auth/* stays on user-service. Internal auth helpers remain private.
-      - "traefik.http.routers.user-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/auth`) || PathPrefix(`/v1/customer`) || PathPrefix(`/v1/profile`) || PathPrefix(`/v1/roles`) || PathPrefix(`/v1/invitations`) || PathPrefix(`/v1/owner`) || PathPrefix(`/v1/webhooks`))"
+      - "traefik.http.routers.user-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/auth`) || PathPrefix(`/v1/customer`) || PathPrefix(`/v1/profile`) || PathPrefix(`/v1/roles`) || PathPrefix(`/v1/invitations`) || PathPrefix(`/v1/manager/staff`) || PathPrefix(`/v1/manager/restaurant`) || PathPrefix(`/v1/owner`) || PathPrefix(`/v1/webhooks`))"
       - "traefik.http.routers.user-service.entrypoints=web"
       - "traefik.http.routers.user-service.priority=10"
       - "traefik.http.routers.user-service.middlewares=secure-headers@file"
@@ -578,6 +578,7 @@ services:
       ZITADEL_AUDIENCE: ${MENU_SERVICE_ZITADEL_AUDIENCE}
       JWT_AUDIENCE: ${MENU_SERVICE_JWT_AUDIENCE}
       USER_SERVICE_INTERNAL_URL: ${MENU_SERVICE_USER_SERVICE_INTERNAL_URL}
+      CAUPPO_PUBLIC_APP_URL: ${MENU_SERVICE_CAUPPO_PUBLIC_APP_URL}
       R2_ENDPOINT: ${MENU_SERVICE_R2_ENDPOINT}
       R2_BUCKET_MENU_ITEMS: ${MENU_SERVICE_R2_BUCKET_MENU_ITEMS}
       R2_BUCKET_QR: ${MENU_SERVICE_R2_BUCKET_QR}
@@ -696,6 +697,7 @@ services:
       ZITADEL_AUDIENCE: ${ORDER_SERVICE_ZITADEL_AUDIENCE}
       JWT_AUDIENCE: ${ORDER_SERVICE_JWT_AUDIENCE}
       MENU_SERVICE_INTERNAL_URL: ${ORDER_SERVICE_MENU_SERVICE_INTERNAL_URL}
+      USER_SERVICE_INTERNAL_URL: ${ORDER_SERVICE_USER_SERVICE_INTERNAL_URL:-http://user-service:3001}
       ORDER_IDEMPOTENCY_TTL_SECONDS: ${ORDER_SERVICE_ORDER_IDEMPOTENCY_TTL_SECONDS}
       TABLE_SESSION_LOCK_TTL_SECONDS: ${ORDER_SERVICE_TABLE_SESSION_LOCK_TTL_SECONDS}
     ports:
@@ -726,7 +728,7 @@ services:
           memory: 256m
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.order-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/orders`) || PathPrefix(`/v1/waiter`) || PathPrefix(`/v1/kitchen`) || PathPrefix(`/v1/cashier`))"
+      - "traefik.http.routers.order-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/orders`) || PathPrefix(`/v1/customer/table-sessions`) || PathPrefix(`/v1/waiter`) || PathPrefix(`/v1/kitchen`) || PathPrefix(`/v1/cashier`))"
       - "traefik.http.routers.order-service.entrypoints=web"
       - "traefik.http.routers.order-service.middlewares=secure-headers@file"
       - "traefik.http.services.order-service.loadbalancer.server.port=8082"
@@ -941,6 +943,7 @@ services:
       ZITADEL_JWKS_URL: ${NOTIFICATION_SERVICE_ZITADEL_JWKS_URL}
       ZITADEL_AUDIENCE: ${NOTIFICATION_SERVICE_ZITADEL_AUDIENCE}
       JWT_AUDIENCE: ${NOTIFICATION_SERVICE_JWT_AUDIENCE}
+      USER_SERVICE_INTERNAL_URL: ${NOTIFICATION_SERVICE_USER_SERVICE_INTERNAL_URL:-http://user-service:3001}
       WS_HEARTBEAT_SECONDS: ${NOTIFICATION_SERVICE_WS_HEARTBEAT_SECONDS}
       WS_IDLE_TIMEOUT_SECONDS: ${NOTIFICATION_SERVICE_WS_IDLE_TIMEOUT_SECONDS}
       WS_REPLAY_TTL_MINUTES: ${NOTIFICATION_SERVICE_WS_REPLAY_TTL_MINUTES}
@@ -1167,6 +1170,7 @@ services:
       FRONTEND_VITE_APP_ENV: ${FRONTEND_VITE_APP_ENV}
     profiles:
       - test-guard
+      - sprint23-manager-proof
     restart: "no"
 
   frontend:

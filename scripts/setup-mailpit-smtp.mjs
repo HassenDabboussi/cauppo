@@ -35,6 +35,8 @@ const adminLoginName = process.env.ZITADEL_ADMIN_LOGIN_NAME
 const adminPassword = process.env.ZITADEL_ADMIN_PASSWORD
 const requestHost = process.env.ZITADEL_REQUEST_HOST?.trim()
 const requestProto = process.env.ZITADEL_REQUEST_PROTO?.trim()
+const bootstrapRetryAttempts = 30
+const bootstrapRetryDelayMs = 1000
 
 if (
   !managementAccessToken &&
@@ -49,47 +51,82 @@ if (
 }
 
 const request = async (url, init = {}, expectedStatuses = [200]) => {
-  const headers = new Headers(init.headers ?? {})
+  const method = init.method ?? 'GET'
 
-  if (requestHost) {
-    headers.set('Host', requestHost)
-  }
-
-  if (requestProto) {
-    headers.set('X-Forwarded-Proto', requestProto)
-  }
-
-  const response = await fetch(url, {
-    redirect: 'manual',
-    ...init,
-    headers,
-  })
-  const rawBody = await response.text()
-  let body = null
-
-  if (rawBody.length > 0) {
+  for (let attempt = 1; attempt <= bootstrapRetryAttempts; attempt += 1) {
     try {
-      body = JSON.parse(rawBody)
-    } catch {
-      body = rawBody
+      const headers = new Headers(init.headers ?? {})
+
+      if (requestHost) {
+        headers.set('Host', requestHost)
+      }
+
+      if (requestProto) {
+        headers.set('X-Forwarded-Proto', requestProto)
+      }
+
+      const response = await fetch(url, {
+        redirect: 'manual',
+        ...init,
+        headers,
+      })
+      const rawBody = await response.text()
+      let body = null
+
+      if (rawBody.length > 0) {
+        try {
+          body = JSON.parse(rawBody)
+        } catch {
+          body = rawBody
+        }
+      }
+
+      if (!expectedStatuses.includes(response.status)) {
+        const message =
+          typeof body === 'object' && body !== null && 'message' in body
+            ? String(body.message)
+            : rawBody || 'no response body'
+
+        const shouldRetry =
+          attempt < bootstrapRetryAttempts &&
+          (response.status === 404 || response.status === 502 || response.status === 503)
+
+        if (shouldRetry) {
+          console.warn(
+            `Zitadel not ready for ${method} ${url} yet (HTTP ${response.status}). Retrying ${attempt}/${bootstrapRetryAttempts}...`,
+          )
+          await new Promise((resolve) => setTimeout(resolve, bootstrapRetryDelayMs))
+          continue
+        }
+
+        throw new Error(
+          `Zitadel request failed: ${method} ${url} (HTTP ${response.status}) - ${message}`,
+        )
+      }
+
+      return {
+        response,
+        body,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const shouldRetry =
+        attempt < bootstrapRetryAttempts &&
+        /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(message)
+
+      if (shouldRetry) {
+        console.warn(
+          `Zitadel request transport failed for ${method} ${url}. Retrying ${attempt}/${bootstrapRetryAttempts}...`,
+        )
+        await new Promise((resolve) => setTimeout(resolve, bootstrapRetryDelayMs))
+        continue
+      }
+
+      throw error
     }
   }
 
-  if (!expectedStatuses.includes(response.status)) {
-    const message =
-      typeof body === 'object' && body !== null && 'message' in body
-        ? String(body.message)
-        : rawBody || 'no response body'
-
-    throw new Error(
-      `Zitadel request failed: ${init.method ?? 'GET'} ${url} (HTTP ${response.status}) - ${message}`,
-    )
-  }
-
-  return {
-    response,
-    body,
-  }
+  throw new Error(`Zitadel request retry budget exhausted for ${method} ${url}`)
 }
 
 const createManagementAccessToken = async () => {
