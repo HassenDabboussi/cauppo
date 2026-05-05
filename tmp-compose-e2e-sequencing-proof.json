@@ -1,0 +1,456 @@
+{
+  "kind": "cauppo-compose-e2e-sequencing-proof",
+  "status": "ready-for-playwright",
+  "envSource": "compose",
+  "approvedEnvFile": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\envs\\.env.test",
+  "checkedAt": "2026-05-05T10:12:18.793Z",
+  "expiresAt": "2026-05-05T10:22:18.793Z",
+  "stages": {
+    "envGuard": true,
+    "currentAuthBoundary": true,
+    "isolatedRestartDurability": true,
+    "developmentReuseRejection": true,
+    "sharedOccupancyRejection": true,
+    "stackHealth": true,
+    "traefikRoutes": true,
+    "browserEntry": true,
+    "authRecord": true,
+    "persistedAuthState": true,
+    "recoveryDrill": true,
+    "isolatedState": true,
+    "realAuthLogin": true,
+    "realAuthSelectedRole": true
+  },
+  "checks": {
+    "authoritativeRecord": {
+      "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\docs\\setup.md",
+      "projectId": "370399287223255055",
+      "frontendClientId": "370399446757801999",
+      "userServiceApiClientId": "370399501820690447",
+      "managementClientId": "user-service-management",
+      "patHostPath": "./envs/.local/isolated-test/iam-login-client.isolated-test.pat"
+    },
+    "isolatedRestartContract": {
+      "restartMode": "preserve-only",
+      "configuredHostPatPath": "./envs/.local/isolated-test/iam-login-client.isolated-test.pat",
+      "authoritativeHostPatPath": "./envs/.local/isolated-test/iam-login-client.isolated-test.pat"
+    },
+    "developmentReuseChecks": [
+      {
+        "envKey": "COMPOSE_PROJECT_NAME",
+        "isolatedTestValue": "cauppo-isolated-test",
+        "developmentValue": "cauppo-development",
+        "ok": true
+      },
+      {
+        "envKey": "CAUPPO_COMPOSE_POSTGRES_VOLUME",
+        "isolatedTestValue": "cauppo-isolated-test-postgres-data",
+        "developmentValue": "cauppo-development-postgres-data",
+        "ok": true
+      },
+      {
+        "envKey": "authoritative PAT host path",
+        "isolatedTestValue": "./envs/.local/isolated-test/iam-login-client.isolated-test.pat",
+        "developmentValue": "./envs/.local/development/iam-login-client.development.pat",
+        "ok": true
+      },
+      {
+        "envKey": "FRONTEND_VITE_ZITADEL_PROJECT_ID",
+        "isolatedTestValue": "370399287223255055",
+        "developmentValue": "370447691437572111",
+        "ok": true
+      },
+      {
+        "envKey": "FRONTEND_VITE_ZITADEL_CLIENT_ID",
+        "isolatedTestValue": "370399446757801999",
+        "developmentValue": "370447892680343567",
+        "ok": true
+      },
+      {
+        "envKey": "USER_SERVICE_ZITADEL_CLIENT_ID",
+        "isolatedTestValue": "370399501820690447",
+        "developmentValue": "370447993175867407",
+        "ok": true
+      }
+    ],
+    "sharedOccupancyChecks": [
+      {
+        "envKey": "CAUPPO_HOST_PORT_POSTGRES",
+        "isolatedTestValue": "5432",
+        "developmentValue": "5432",
+        "ok": true
+      },
+      {
+        "envKey": "CAUPPO_HOST_PORT_REDIS",
+        "isolatedTestValue": "6379",
+        "developmentValue": "6379",
+        "ok": true
+      },
+      {
+        "envKey": "CAUPPO_HOST_PORT_RABBITMQ",
+        "isolatedTestValue": "5672",
+        "developmentValue": "5672",
+        "ok": true
+      },
+      {
+        "envKey": "CAUPPO_HOST_PORT_TRAEFIK_WEB",
+        "isolatedTestValue": "80",
+        "developmentValue": "80",
+        "ok": true
+      },
+      {
+        "envKey": "CAUPPO_HOST_PORT_ZITADEL",
+        "isolatedTestValue": "8080",
+        "developmentValue": "8080",
+        "ok": true
+      },
+      {
+        "envKey": "CAUPPO_HOST_PORT_USER_SERVICE",
+        "isolatedTestValue": "3001",
+        "developmentValue": "3001",
+        "ok": true
+      },
+      {
+        "envKey": "CAUPPO_HOST_PORT_FRONTEND",
+        "isolatedTestValue": "3000",
+        "developmentValue": "3000",
+        "ok": true
+      }
+    ],
+    "healthChecks": [
+      {
+        "url": "http://auth.cauppo.localhost/ui/v2/login/healthy",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyJson": {},
+        "bodySummary": "{}"
+      },
+      {
+        "url": "http://app.cauppo.localhost/health",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyStatus": "ok",
+        "bodyJson": {
+          "status": "ok",
+          "service": "frontend",
+          "version": "0.1.0"
+        },
+        "bodySummary": "{\"status\":\"ok\",\"service\":\"frontend\",\"version\":\"0.1.0\"}"
+      },
+      {
+        "url": "http://127.0.0.1:3001/health",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyStatus": "ok",
+        "bodyJson": {
+          "status": "ok",
+          "service": "user-service",
+          "version": "0.1.0",
+          "timestamp": "2026-05-05T10:12:18.885Z",
+          "checks": {
+            "postgres": "ok",
+            "redis": "ok",
+            "rabbitmq": "ok"
+          }
+        },
+        "bodySummary": "{\"status\":\"ok\",\"service\":\"user-service\",\"version\":\"0.1.0\",\"timestamp\":\"2026-05-05T10:12:18.885Z\",\"checks\":{\"postgres\":\"ok\",\"redis\":\"ok\",\"rabbitmq\":\"ok\"}}"
+      },
+      {
+        "url": "http://127.0.0.1:3002/health",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyStatus": "ok",
+        "bodyJson": {
+          "status": "ok",
+          "service": "feedback-service",
+          "version": "0.1.0",
+          "timestamp": "2026-05-05T10:12:18.886Z",
+          "checks": {
+            "postgres": "ok",
+            "redis": "ok",
+            "rabbitmq": "ok"
+          }
+        },
+        "bodySummary": "{\"status\":\"ok\",\"service\":\"feedback-service\",\"version\":\"0.1.0\",\"timestamp\":\"2026-05-05T10:12:18.886Z\",\"checks\":{\"postgres\":\"ok\",\"redis\":\"ok\",\"rabbitmq\":\"ok\"}}"
+      },
+      {
+        "url": "http://127.0.0.1:8081/health",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyStatus": "ok",
+        "bodyJson": {
+          "status": "ok",
+          "service": "menu-service",
+          "version": "0.1.0",
+          "checks": {
+            "postgres": "ok",
+            "rabbitmq": "ok",
+            "redis": "ok"
+          },
+          "timestamp": "2026-05-05T10:12:18Z"
+        },
+        "bodySummary": "{\"status\":\"ok\",\"service\":\"menu-service\",\"version\":\"0.1.0\",\"checks\":{\"postgres\":\"ok\",\"rabbitmq\":\"ok\",\"redis\":\"ok\"},\"timestamp\":\"2026-05-05T10:12:18Z\"}"
+      },
+      {
+        "url": "http://127.0.0.1:8082/health",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyStatus": "ok",
+        "bodyJson": {
+          "status": "ok",
+          "service": "order-service",
+          "version": "0.1.0",
+          "checks": {
+            "postgres": "ok",
+            "rabbitmq": "ok",
+            "redis": "ok"
+          },
+          "timestamp": "2026-05-05T10:12:18Z"
+        },
+        "bodySummary": "{\"status\":\"ok\",\"service\":\"order-service\",\"version\":\"0.1.0\",\"checks\":{\"postgres\":\"ok\",\"rabbitmq\":\"ok\",\"redis\":\"ok\"},\"timestamp\":\"2026-05-05T10:12:18Z\"}"
+      },
+      {
+        "url": "http://127.0.0.1:8083/health",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyStatus": "ok",
+        "bodyJson": {
+          "status": "ok",
+          "service": "analytics-service",
+          "version": "0.1.0",
+          "checks": {
+            "postgres": "ok",
+            "rabbitmq": "ok",
+            "redis": "ok"
+          },
+          "timestamp": "2026-05-05T10:12:18Z"
+        },
+        "bodySummary": "{\"status\":\"ok\",\"service\":\"analytics-service\",\"version\":\"0.1.0\",\"checks\":{\"postgres\":\"ok\",\"rabbitmq\":\"ok\",\"redis\":\"ok\"},\"timestamp\":\"2026-05-05T10:12:18Z\"}"
+      },
+      {
+        "url": "http://127.0.0.1:8084/health",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyStatus": "ok",
+        "bodyJson": {
+          "status": "ok",
+          "service": "notification-service",
+          "version": "0.1.0",
+          "checks": {
+            "rabbitmq": "ok",
+            "redis": "ok",
+            "replaySafe": "ok"
+          },
+          "timestamp": "2026-05-05T10:12:18Z"
+        },
+        "bodySummary": "{\"status\":\"ok\",\"service\":\"notification-service\",\"version\":\"0.1.0\",\"checks\":{\"rabbitmq\":\"ok\",\"redis\":\"ok\",\"replaySafe\":\"ok\"},\"timestamp\":\"2026-05-05T10:12:18Z\"}"
+      }
+    ],
+    "routeChecks": [
+      {
+        "url": "http://app.cauppo.localhost/login",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodySummary": "<!doctype html> <html lang=\"en\"> <head> <meta charset=\"UTF-8\" /> <link rel=\"icon\" type=\"image/x-icon\" href=\"/favicon.ico\" /> <link rel=\"manifest\" href=\"/manifest.json\" /> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" /> <meta name=\"theme-color\" content=\"#6B7B3C\" /> <title>Cauppo</title> <script type=\"module\" crossorigin src=\"/assets/index-B7qEL5L3.js\"></script> <link rel=\"s"
+      },
+      {
+        "url": "http://auth.cauppo.localhost/ui/v2/login/healthy",
+        "method": "GET",
+        "status": 200,
+        "ok": true,
+        "bodyJson": {},
+        "bodySummary": "{}"
+      }
+    ],
+    "persistedAuthStateChecks": [
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-shared.json",
+        "ok": true,
+        "ignored": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-0.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-1.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-2.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-3.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-4.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-5.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-6.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-7.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\owner-worker-8.json",
+        "ok": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\sprint23-accepted-manager-metadata.json",
+        "ok": true,
+        "ignored": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\sprint23-accepted-manager-storage.json",
+        "ok": true,
+        "ignored": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\sprint24-accepted-waiter-metadata.json",
+        "ok": true,
+        "ignored": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\sprint24-accepted-waiter-storage.json",
+        "ok": true,
+        "ignored": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\sprint25-accepted-chef-metadata.json",
+        "ok": true,
+        "ignored": true
+      },
+      {
+        "filePath": "C:\\Users\\hasse\\OneDrive\\Desktop\\cauppo\\frontend\\e2e\\.auth\\sprint25-accepted-chef-storage.json",
+        "ok": true,
+        "ignored": true
+      }
+    ],
+    "recoveryBundle": {
+      "requested": false,
+      "required": false,
+      "recoveryMetadataFile": null,
+      "recoveredPatFile": null,
+      "recoveredZitadelDatabaseBackupFile": null
+    },
+    "loginProbe": {
+      "url": "http://api.cauppo.localhost/v1/auth/login",
+      "method": "POST",
+      "status": 200,
+      "ok": true,
+      "bodyJson": {
+        "authenticationState": "AUTHENTICATED",
+        "continuation": {
+          "nextStep": "AUTHORITATIVE_ROUTE_RESOLUTION",
+          "authority": "USER_SERVICE"
+        },
+        "session": {
+          "tokenSet": {
+            "accessToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjM3MDM5ODUxNzc2OTc5NzY0NyIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vYXV0aC5jYXVwcG8ubG9jYWxob3N0Iiwic3ViIjoiMzcwNDAxOTA4ODMxMDI3MjE1IiwiYXVkIjpbIjM3MDM5OTQ0Njc1NzgwMTk5OSIsIjM3MDM5OTUwMTgyMDY5MDQ0NyIsIjM3MDM5OTU3OTUxNTk3Nzc0MyIsIjM3MDM5OTY0NTA2NDU2MDY1NSIsIjM3MDM5OTczODE3ODEwOTQ1NSIsIjM3MDM5OTgyMDYyMTM0ODg3OSIsIjM3MDM5OTg3OTEyMzUwMTA3MSIsIjM3MDM5OTI4NzIyMzI1NTA1NSJdLCJleHAiOjE3NzgwMTkxMzksImlhdCI6MTc3Nzk3NTkzOSwibmJmIjoxNzc3OTc1OTM5LCJjbGllbnRfaWQiOiIzNzAzOTk0NDY3NTc4MDE5OTkiLCJqdGkiOiJWMl8zNzE1ODE2Nzg5NTIzODI0NjctYXRfMzcxNTgxNjc4OTUyNDQ4MDAzIn0.StEB2qsg0qBjpNV6gnFgqiOOwlcRbP6vAxVoeUQS6eGL-J6yROlPKxg-WnD9XAakRPZaLdtLvcK3m3kbFdZfZggEIRd7dDlLRLMqTGhyiHDo0fjiXIs2Zhx6mEgs7Dxl9eKYqfsIu4mDlGiHF9wlT2tc7wbo1p1N9KVG1-ZDEoKGE1D8GDkLguNOmH60AI23JJxgEyOOYvQo0snevbMgzns2NJdA7vB_dLxq51D6qRCZvDeQkp137uuxhVSlnM5-ofbYu57VydNFOD0-5Cl5Yw_H8nAyC2gCoJb0MFAmg_trpwlZxPke3ZMQnREfoZ5hMedyOSUuVsDpnWuI7HzV3A",
+            "refreshToken": "yRVj8PEHxpSaQgAzYoeY-99XpeNUr-PIxhbnX-ttGqSw4q9d5JybxOffKwq8GqWOIgybv7tUBC9QT4T0Qs0AlJwkWy3yg7kBXAyir0eg",
+            "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjM3MDM5ODUxNzc2OTc5NzY0NyIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vYXV0aC5jYXVwcG8ubG9jYWxob3N0Iiwic3ViIjoiMzcwNDAxOTA4ODMxMDI3MjE1IiwiYXVkIjpbIjM3MDM5OTQ0Njc1NzgwMTk5OSIsIjM3MDM5OTUwMTgyMDY5MDQ0NyIsIjM3MDM5OTU3OTUxNTk3Nzc0MyIsIjM3MDM5OTY0NTA2NDU2MDY1NSIsIjM3MDM5OTczODE3ODEwOTQ1NSIsIjM3MDM5OTgyMDYyMTM0ODg3OSIsIjM3MDM5OTg3OTEyMzUwMTA3MSIsIjM3MDM5OTI4NzIyMzI1NTA1NSJdLCJleHAiOjE3NzgwMTkxMzksImlhdCI6MTc3Nzk3NTkzOSwiYXV0aF90aW1lIjoxNzc3OTc1OTM5LCJhbXIiOlsicHdkIl0sImF6cCI6IjM3MDM5OTQ0Njc1NzgwMTk5OSIsImNsaWVudF9pZCI6IjM3MDM5OTQ0Njc1NzgwMTk5OSIsImF0X2hhc2giOiJ5RTJzVXd2UUVvdU0taGhkdk82VElBIiwic2lkIjoiMzcxNTgxNjc3NTA5NTQxODkxIn0.N3zEbSQLHFDTsGKfc9RlE_uqEe753t23yZFP3waMtTLDR4QY-6Upkhlup7AqK2XwxuzagKos9zVlzBT8vUeIHTFZq3K3kcNlDEGJYxgNGEzV00jwMvXxFrpUP1e5DwjPCJkbtB724Njhthv6Zm-hTeGm-uGq7WhyQurMvJ36cFMXl-IF1dklsTLqnK4lXbmk4zvL8JkUk3bOxmUYgS3zBLDUGkhRzZT8g7PStiWUZJXrE_2VphzaLLAZe824XaYIktL4rjun9VcjThrN09jwdsHZ6kR3X_NBqkxkQYJw0AF_3nDPHZR3a3yZroSmaJc7IwTsd_7W4O7wgQ2iIqY4xA",
+            "tokenType": "Bearer",
+            "scope": "openid profile email offline_access urn:zitadel:iam:org:project:id:370399287223255055:aud",
+            "accessTokenExpiresAt": "2026-05-05T22:12:18.801Z"
+          },
+          "binding": {
+            "issuer": "http://auth.cauppo.localhost",
+            "subject": "370401908831027215",
+            "sid": "371581677509541891",
+            "clientId": "370399446757801999",
+            "authTime": "2026-05-05T10:12:19.000Z",
+            "sessionExpiresAt": "2026-05-12T10:12:19.000Z",
+            "refreshExpiresAt": "2026-05-12T10:12:19.000Z"
+          },
+          "user": {
+            "id": "fb2927b0-9d4d-46b6-b280-ed5e8a3454f2",
+            "name": "Test Owner",
+            "email": "test@cauppo.com",
+            "username": "test-owner"
+          }
+        }
+      },
+      "bodySummary": "{\"authenticationState\":\"AUTHENTICATED\",\"continuation\":{\"nextStep\":\"AUTHORITATIVE_ROUTE_RESOLUTION\",\"authority\":\"USER_SERVICE\"},\"session\":{\"tokenSet\":{\"accessToken\":\"eyJhbGciOiJSUzI1NiIsImtpZCI6IjM3MDM5ODUxNzc2OTc5NzY0NyIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vYXV0aC5jYXVwcG8ubG9jYWxob3N0Iiwic3ViIjoiMzcwNDAxOTA4ODMxMDI3MjE1IiwiYXVkIjpbIjM3MDM5OTQ0Njc1NzgwMTk5OSIsIjM3MDM5OTUwMTgyMDY5MDQ0NyIsIjM3MDM5OT"
+    },
+    "myRolesProbe": {
+      "url": "http://api.cauppo.localhost/v1/auth/my-roles",
+      "method": "GET",
+      "status": 200,
+      "ok": true,
+      "bodyJson": {
+        "userId": "fb2927b0-9d4d-46b6-b280-ed5e8a3454f2",
+        "email": "test@cauppo.com",
+        "roles": [
+          {
+            "roleId": "7598518e-3d13-4357-bb94-da5b3624949f",
+            "role": "CUSTOMER",
+            "contextId": null,
+            "contextType": null,
+            "contextName": null,
+            "isActive": true,
+            "createdAt": "2026-04-27T06:55:51.542Z"
+          },
+          {
+            "roleId": "22222222-2222-4222-8222-222222222222",
+            "role": "OWNER",
+            "contextId": "33333333-3333-4333-8333-333333333333",
+            "contextType": "ORGANIZATION",
+            "contextName": "Cauppo Test Ownership Group",
+            "isActive": true,
+            "createdAt": "2026-04-27T06:55:51.542Z"
+          }
+        ],
+        "currentRole": {
+          "roleId": "7598518e-3d13-4357-bb94-da5b3624949f",
+          "role": "CUSTOMER",
+          "contextId": null,
+          "contextType": null,
+          "contextName": null,
+          "isActive": true,
+          "createdAt": "2026-04-27T06:55:51.542Z"
+        }
+      },
+      "bodySummary": "{\"userId\":\"fb2927b0-9d4d-46b6-b280-ed5e8a3454f2\",\"email\":\"test@cauppo.com\",\"roles\":[{\"roleId\":\"7598518e-3d13-4357-bb94-da5b3624949f\",\"role\":\"CUSTOMER\",\"contextId\":null,\"contextType\":null,\"contextName\":null,\"isActive\":true,\"createdAt\":\"2026-04-27T06:55:51.542Z\"},{\"roleId\":\"22222222-2222-4222-8222-222222222222\",\"role\":\"OWNER\",\"contextId\":\"33333333-3333-4333-8333-333333333333\",\"contextType\":\"ORGANIZA"
+    },
+    "activeRoleProbe": {
+      "url": "http://api.cauppo.localhost/v1/auth/active-role",
+      "method": "POST",
+      "status": 200,
+      "ok": true,
+      "bodyJson": {
+        "activeRoleSessionRef": "ars_50bb2d0b-6434-4951-9bc3-04b74555584e",
+        "sessionVersion": 1,
+        "selectedRole": {
+          "roleId": "22222222-2222-4222-8222-222222222222",
+          "role": "OWNER",
+          "contextId": "33333333-3333-4333-8333-333333333333",
+          "contextType": "ORGANIZATION",
+          "contextName": "Cauppo Test Ownership Group"
+        },
+        "createdAt": "2026-05-05T10:12:19.816Z",
+        "idleExpiresAt": "2026-05-05T18:12:19.816Z",
+        "absoluteExpiresAt": "2026-05-12T10:12:19.000Z"
+      },
+      "bodySummary": "{\"activeRoleSessionRef\":\"ars_50bb2d0b-6434-4951-9bc3-04b74555584e\",\"sessionVersion\":1,\"selectedRole\":{\"roleId\":\"22222222-2222-4222-8222-222222222222\",\"role\":\"OWNER\",\"contextId\":\"33333333-3333-4333-8333-333333333333\",\"contextType\":\"ORGANIZATION\",\"contextName\":\"Cauppo Test Ownership Group\"},\"createdAt\":\"2026-05-05T10:12:19.816Z\",\"idleExpiresAt\":\"2026-05-05T18:12:19.816Z\",\"absoluteExpiresAt\":\"2026-05"
+    }
+  },
+  "blockers": []
+}
