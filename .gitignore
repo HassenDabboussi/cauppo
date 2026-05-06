@@ -5,6 +5,7 @@ dist/
 bin/
 *.exe
 *.txt
+/tmp-*
 docker-volumes/
 analytics-service/
 feedback-service/
