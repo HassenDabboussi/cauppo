@@ -516,7 +516,7 @@ services:
           memory: 256m
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.feedback-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/feedback`) || PathPrefix(`/v1/manager/feedback`) || PathPrefix(`/v1/owner/feedback`))"
+      - "traefik.http.routers.feedback-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/feedback`) || PathPrefix(`/v1/customer/feedback`) || PathPrefix(`/v1/manager/feedback`) || PathPrefix(`/v1/owner/feedback`))"
       - "traefik.http.routers.feedback-service.entrypoints=web"
       - "traefik.http.routers.feedback-service.priority=20"
       - "traefik.http.routers.feedback-service.middlewares=secure-headers@file"
@@ -534,11 +534,11 @@ services:
     environment:
       DATABASE_URL: ${FEEDBACK_SERVICE_DATABASE_URL}
     entrypoint: >
-      /bin/sh -c "
+      /bin/sh -ec "
         mkdir -p /workspace/feedback-service;
           tar -C /source -cf - package.json bun.lock bunfig.toml tsconfig.json drizzle.config.ts src drizzle | tar -C /workspace/feedback-service -xf -;
         bun install;
-        bunx drizzle-kit push --force;
+        bun run db:init;
         echo 'feedback-service schema initialized';
         touch /tmp/cauppo-init-ready;
         tail -f /dev/null;
@@ -578,6 +578,7 @@ services:
       ZITADEL_AUDIENCE: ${MENU_SERVICE_ZITADEL_AUDIENCE}
       JWT_AUDIENCE: ${MENU_SERVICE_JWT_AUDIENCE}
       USER_SERVICE_INTERNAL_URL: ${MENU_SERVICE_USER_SERVICE_INTERNAL_URL}
+      ORDER_SERVICE_INTERNAL_URL: ${MENU_SERVICE_ORDER_SERVICE_INTERNAL_URL}
       CAUPPO_PUBLIC_APP_URL: ${MENU_SERVICE_CAUPPO_PUBLIC_APP_URL}
       R2_ENDPOINT: ${MENU_SERVICE_R2_ENDPOINT}
       R2_BUCKET_MENU_ITEMS: ${MENU_SERVICE_R2_BUCKET_MENU_ITEMS}
@@ -728,8 +729,9 @@ services:
           memory: 256m
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.order-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/orders`) || PathPrefix(`/v1/customer/table-sessions`) || PathPrefix(`/v1/waiter`) || PathPrefix(`/v1/kitchen`) || PathPrefix(`/v1/cashier`))"
+      - "traefik.http.routers.order-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/orders`) || PathPrefix(`/v1/customer/orders`) || PathPrefix(`/v1/customer/table-sessions`) || PathPrefix(`/v1/waiter`) || PathPrefix(`/v1/kitchen`) || PathPrefix(`/v1/cashier`))"
       - "traefik.http.routers.order-service.entrypoints=web"
+      - "traefik.http.routers.order-service.priority=20"
       - "traefik.http.routers.order-service.middlewares=secure-headers@file"
       - "traefik.http.services.order-service.loadbalancer.server.port=8082"
     networks:
