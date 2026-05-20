@@ -389,7 +389,7 @@ services:
     labels:
       - "traefik.enable=true"
       # Public /v1/auth/* stays on user-service. Internal auth helpers remain private.
-      - "traefik.http.routers.user-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/auth`) || PathPrefix(`/v1/customer`) || PathPrefix(`/v1/profile`) || PathPrefix(`/v1/roles`) || PathPrefix(`/v1/invitations`) || PathPrefix(`/v1/manager/staff`) || PathPrefix(`/v1/manager/restaurant`) || PathPrefix(`/v1/owner`) || PathPrefix(`/v1/webhooks`))"
+      - "traefik.http.routers.user-service.rule=Host(`api.cauppo.localhost`) && (PathPrefix(`/v1/auth`) || PathPrefix(`/v1/customer`) || PathPrefix(`/v1/profile`) || PathPrefix(`/v1/users`) || PathPrefix(`/v1/roles`) || PathPrefix(`/v1/invitations`) || PathPrefix(`/v1/manager/staff`) || PathPrefix(`/v1/manager/restaurant`) || PathPrefix(`/v1/owner`) || PathPrefix(`/v1/webhooks`))"
       - "traefik.http.routers.user-service.entrypoints=web"
       - "traefik.http.routers.user-service.priority=10"
       - "traefik.http.routers.user-service.middlewares=secure-headers@file"
