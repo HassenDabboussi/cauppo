@@ -12,7 +12,7 @@ cauppo-root/          # this repo — orchestration layer
 ├── feedback-service/ # cloned from <feedback-service-repo-url>
 ├── menu-service/     # cloned from https://github.com/HassenDabboussi/cauppo-menu-service
 ├── order-service/    # cloned from <order-service-repo-url>
-├── analytics-service/# cloned from <analytics-service-repo-url>
+├── analytics-service/# cloned from https://github.com/HassenDabboussi/cauppo-analytics-service
 ├── notification-service/ # cloned from <notification-service-repo-url>
 ├── frontend/         # cloned from https://github.com/HassenDabboussi/cauppo-frontend
 └── docker-compose.yml
@@ -27,7 +27,7 @@ cauppo-root/          # this repo — orchestration layer
 | `feedback-service` | TypeScript / Hono | Bun | 3002 | `<feedback-service-repo-url>` |
 | `menu-service` | Go / Gin | Go | 8081 | [cauppo-menu-service](https://github.com/HassenDabboussi/cauppo-menu-service) |
 | `order-service` | Go / Gin | Go | 8082 | `<order-service-repo-url>` |
-| `analytics-service` | Go / Gin | Go | 8083 | `<analytics-service-repo-url>` |
+| `analytics-service` | Go / Gin | Go | 8083 | [cauppo-analytics-service](https://github.com/HassenDabboussi/cauppo-analytics-service) |
 | `notification-service` | Go / Gin + WebSocket | Go | 8084 | `<notification-service-repo-url>` |
 
 ### Infrastructure
@@ -91,7 +91,7 @@ git clone <user-service-repo-url> user-service
 git clone <feedback-service-repo-url> feedback-service
 git clone https://github.com/HassenDabboussi/cauppo-menu-service.git menu-service
 git clone <order-service-repo-url> order-service
-git clone <analytics-service-repo-url> analytics-service
+git clone https://github.com/HassenDabboussi/cauppo-analytics-service.git analytics-service
 git clone <notification-service-repo-url> notification-service
 ```
 
