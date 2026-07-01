@@ -13,7 +13,7 @@ cauppo-root/          # this repo — orchestration layer
 ├── menu-service/     # cloned from https://github.com/HassenDabboussi/cauppo-menu-service
 ├── order-service/    # cloned from https://github.com/HassenDabboussi/cauppo-order-service
 ├── analytics-service/# cloned from https://github.com/HassenDabboussi/cauppo-analytics-service
-├── notification-service/ # cloned from <notification-service-repo-url>
+├── notification-service/ # cloned from https://github.com/HassenDabboussi/cauppo-notification-service
 ├── frontend/         # cloned from https://github.com/HassenDabboussi/cauppo-frontend
 └── docker-compose.yml
 ```
@@ -28,7 +28,7 @@ cauppo-root/          # this repo — orchestration layer
 | `menu-service` | Go / Gin | Go | 8081 | [cauppo-menu-service](https://github.com/HassenDabboussi/cauppo-menu-service) |
 | `order-service` | Go / Gin | Go | 8082 | [cauppo-order-service](https://github.com/HassenDabboussi/cauppo-order-service) |
 | `analytics-service` | Go / Gin | Go | 8083 | [cauppo-analytics-service](https://github.com/HassenDabboussi/cauppo-analytics-service) |
-| `notification-service` | Go / Gin + WebSocket | Go | 8084 | `<notification-service-repo-url>` |
+| `notification-service` | Go / Gin + WebSocket | Go | 8084 | [cauppo-notification-service](https://github.com/HassenDabboussi/cauppo-notification-service) |
 
 ### Infrastructure
 
@@ -92,7 +92,7 @@ git clone <feedback-service-repo-url> feedback-service
 git clone https://github.com/HassenDabboussi/cauppo-menu-service.git menu-service
 git clone https://github.com/HassenDabboussi/cauppo-order-service.git order-service
 git clone https://github.com/HassenDabboussi/cauppo-analytics-service.git analytics-service
-git clone <notification-service-repo-url> notification-service
+git clone https://github.com/HassenDabboussi/cauppo-notification-service.git notification-service
 ```
 
 ### Step 3 — Configure environment
