@@ -9,7 +9,7 @@ Cauppo is a **polyrepo** system. This repository is the **orchestration layer** 
 ```
 cauppo-root/          # this repo — orchestration layer
 ├── user-service/     # cloned from https://github.com/HassenDabboussi/cauppo-user-service
-├── feedback-service/ # cloned from <feedback-service-repo-url>
+├── feedback-service/ # cloned from https://github.com/HassenDabboussi/cauppo-feedback-service
 ├── menu-service/     # cloned from https://github.com/HassenDabboussi/cauppo-menu-service
 ├── order-service/    # cloned from https://github.com/HassenDabboussi/cauppo-order-service
 ├── analytics-service/# cloned from https://github.com/HassenDabboussi/cauppo-analytics-service
@@ -24,7 +24,7 @@ cauppo-root/          # this repo — orchestration layer
 |---|---|---|---|---|
 | `frontend` | TypeScript / React 19 | Bun | 8080 | [cauppo-frontend](https://github.com/HassenDabboussi/cauppo-frontend) |
 | `user-service` | TypeScript / Hono | Bun | 3001 | [cauppo-user-service](https://github.com/HassenDabboussi/cauppo-user-service) |
-| `feedback-service` | TypeScript / Hono | Bun | 3002 | `<feedback-service-repo-url>` |
+| `feedback-service` | TypeScript / Hono | Bun | 3002 | [cauppo-feedback-service](https://github.com/HassenDabboussi/cauppo-feedback-service) |
 | `menu-service` | Go / Gin | Go | 8081 | [cauppo-menu-service](https://github.com/HassenDabboussi/cauppo-menu-service) |
 | `order-service` | Go / Gin | Go | 8082 | [cauppo-order-service](https://github.com/HassenDabboussi/cauppo-order-service) |
 | `analytics-service` | Go / Gin | Go | 8083 | [cauppo-analytics-service](https://github.com/HassenDabboussi/cauppo-analytics-service) |
@@ -88,7 +88,7 @@ Each service directory must contain its corresponding repository. Clone them all
 ```bash
 git clone https://github.com/HassenDabboussi/cauppo-frontend.git frontend
 git clone https://github.com/HassenDabboussi/cauppo-user-service.git user-service
-git clone <feedback-service-repo-url> feedback-service
+git clone https://github.com/HassenDabboussi/cauppo-feedback-service.git feedback-service
 git clone https://github.com/HassenDabboussi/cauppo-menu-service.git menu-service
 git clone https://github.com/HassenDabboussi/cauppo-order-service.git order-service
 git clone https://github.com/HassenDabboussi/cauppo-analytics-service.git analytics-service
