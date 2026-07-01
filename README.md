@@ -14,7 +14,7 @@ cauppo-root/          # this repo — orchestration layer
 ├── order-service/    # cloned from <order-service-repo-url>
 ├── analytics-service/# cloned from <analytics-service-repo-url>
 ├── notification-service/ # cloned from <notification-service-repo-url>
-├── frontend/         # cloned from <frontend-repo-url>
+├── frontend/         # cloned from https://github.com/HassenDabboussi/cauppo-frontend
 └── docker-compose.yml
 ```
 
@@ -22,7 +22,7 @@ cauppo-root/          # this repo — orchestration layer
 
 | Service | Language | Runtime | Port | Repo |
 |---|---|---|---|---|
-| `frontend` | TypeScript / React 19 | Bun | 8080 | `<frontend-repo-url>` |
+| `frontend` | TypeScript / React 19 | Bun | 8080 | [cauppo-frontend](https://github.com/HassenDabboussi/cauppo-frontend) |
 | `user-service` | TypeScript / Hono | Bun | 3001 | `<user-service-repo-url>` |
 | `feedback-service` | TypeScript / Hono | Bun | 3002 | `<feedback-service-repo-url>` |
 | `menu-service` | Go / Gin | Go | 8081 | `<menu-service-repo-url>` |
@@ -86,7 +86,7 @@ cd cauppo
 Each service directory must contain its corresponding repository. Clone them all into the root:
 
 ```bash
-git clone <frontend-repo-url> frontend
+git clone https://github.com/HassenDabboussi/cauppo-frontend.git frontend
 git clone <user-service-repo-url> user-service
 git clone <feedback-service-repo-url> feedback-service
 git clone <menu-service-repo-url> menu-service
