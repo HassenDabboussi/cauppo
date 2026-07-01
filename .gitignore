@@ -15,6 +15,9 @@ notification-service/
 order-service/
 user-service/
 envs/
+scripts/
+shared/
+tests/
 docs/
 project_management/
 skills-lock.json
